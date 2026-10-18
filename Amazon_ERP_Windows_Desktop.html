@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>منظومة إدارة أمازون أفلييت والحملات الإعلانية - Windows Desktop ERP</title>
+<style>
+  :root {
+    --bg-main: #090d16;
+    --bg-card: #111827;
+    --bg-sidebar: #0d1322;
+    --border: #1e293b;
+    --text: #f8fafc;
+    --text-muted: #94a3b8;
+    --primary: #38bdf8;
+    --emerald: #10b981;
+    --amber: #f59e0b;
+    --rose: #f43f5e;
+    --purple: #a855f7;
+  }
+  body.light {
+    --bg-main: #f1f5f9;
+    --bg-card: #ffffff;
+    --bg-sidebar: #ffffff;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --text-muted: #64748b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, sans-serif; }
+  body { background: var(--bg-main); color: var(--text); display: flex; height: 100vh; overflow: hidden; user-select: none; }
+  /* Sidebar */
+  .sidebar { width: 275px; background: var(--bg-sidebar); border-left: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+  .brand { height: 70px; padding: 0 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); }
+  .brand-icon { width: 40px; height: 40px; border-radius: 11px; background: linear-gradient(135deg, #0ea5e9, #10b981); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 20px; }
+  .brand-title { font-size: 14.5px; font-weight: 700; }
+  .brand-sub { font-size: 11px; color: var(--emerald); }
+  .nav-list { flex: 1; overflow-y: auto; padding: 10px 8px; }
+  .nav-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 10px; cursor: pointer; margin-bottom: 4px; transition: 0.15s; border: 1px solid transparent; }
+  .nav-item:hover { background: rgba(56, 189, 248, 0.08); }
+  .nav-item.active { background: rgba(56, 189, 248, 0.15); border-color: rgba(56, 189, 248, 0.45); }
+  .nav-item-title { font-size: 13px; font-weight: 600; }
+  .nav-item-sub { font-size: 10.5px; color: var(--text-muted); margin-top: 2px; }
+  .nav-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: rgba(56, 189, 248, 0.16); color: var(--primary); }
+  .sidebar-footer { padding: 10px; border-top: 1px solid var(--border); display: flex; gap: 6px; }
+  /* Main */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .topbar { height: 70px; background: var(--bg-sidebar); border-bottom: 1px solid var(--border); padding: 0 22px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  .topbar-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pill { padding: 5px 11px; border-radius: 9px; font-size: 12px; font-weight: 600; border: 1px solid rgba(255,255,255,0.1); background: rgba(56,189,248,0.1); }
+  .content { flex: 1; overflow-y: auto; padding: 20px; }
+  /* Grid & Cards */
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 16px; }
+  .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
+  .kpi-title { font-size: 12.5px; color: var(--text-muted); font-weight: 600; margin-bottom: 8px; }
+  .kpi-val { font-size: 23px; font-weight: 800; margin-bottom: 4px; }
+  .kpi-sub { font-size: 11px; color: var(--text-muted); }
+  /* Tables */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; text-align: right; }
+  th, td { padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--text-muted); font-weight: 700; background: rgba(255,255,255,0.02); }
+  tr:hover td { background: rgba(56, 189, 248, 0.04); }
+  .badge { display: inline-block; padding: 3px 9px; border-radius: 99px; font-size: 11px; font-weight: 700; }
+  .b-green { background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.35); }
+  .b-red { background: rgba(244,63,94,0.15); color: #f43f5e; border: 1px solid rgba(244,63,94,0.35); }
+  .b-amber { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.35); }
+  .b-blue { background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.35); }
+  /* Controls */
+  .btn { padding: 8px 14px; border-radius: 9px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text); cursor: pointer; font-size: 12.5px; font-weight: 600; transition: 0.15s; }
+  .btn:hover { border-color: var(--primary); }
+  .btn-primary { background: #0284c7; border-color: #0ea5e9; color: #fff; }
+  .btn-primary:hover { background: #0369a1; }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+  input, select { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-main); color: var(--text); font-size: 12.5px; }
+  .mono { font-family: Consolas, monospace; cursor: pointer; }
+  .mono:hover { color: var(--primary); text-decoration: underline; }
+  /* Modal */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.65); display: none; align-items: center; justify-content: center; z-index: 100; }
+  .modal { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; width: 650px; max-width: 95vw; padding: 22px; max-height: 90vh; overflow-y: auto; }
+  .form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0; }
+  .form-group { display: flex; flex-direction: column; gap: 4px; }
+  .form-group label { font-size: 11.5px; color: var(--text-muted); }
+  .toast { position: fixed; bottom: 20px; left: 20px; background: #10b981; color: #fff; padding: 10px 18px; border-radius: 10px; font-weight: 700; font-size: 13px; display: none; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="brand">
+    <div class="brand-icon">A</div>
+    <div>
+      <div class="brand-title">منظومة أمازون الرقمية</div>
+      <div class="brand-sub">متزامن ومترابط بالكامل 🟢</div>
+    </div>
+  </div>
+  <div class="nav-list" id="navList"></div>
+  <div class="sidebar-footer">
+    <button class="btn" style="flex:1" onclick="toggleTheme()">🌓 المظهر</button>
+    <button class="btn" title="تصدير CSV للإكسل" onclick="exportCampaignsCsv()">📥 CSV</button>
+    <button class="btn" title="استعادة بيانات الإكسل الأصلية" onclick="resetFactory()">🔄</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <div>
+      <div id="screenTitle" style="font-size:17px;font-weight:800;">التقرير التنفيذي الشامل</div>
+      <div id="screenSub" style="font-size:11.5px;color:var(--text-muted);">نظرة استراتيجية شاملة للمنظومة</div>
+    </div>
+    <div class="topbar-pills" id="topPills"></div>
+  </div>
+  <div class="content" id="mainContent"></div>
+</div>
+
+<!-- نافذة إضافة حملة يومية -->
+<div class="modal-backdrop" id="campaignModal">
+  <div class="modal">
+    <h3 style="margin-bottom:8px;">➕ تسجيل حملة يومية جديدة (تعبئة تلقائية ذكية)</h3>
+    <div class="form-grid">
+      <div class="form-group" style="grid-column: span 2;">
+        <label>اختر المنتج (تعبئة تلقائية لبيانات الحساب)</label>
+        <select id="m_product" onchange="autoFillProduct()"></select>
+      </div>
+      <div class="form-group">
+        <label>التاريخ</label>
+        <input type="date" id="m_date">
+      </div>
+      <div class="form-group">
+        <label>المستفيد</label>
+        <input type="text" id="m_beneficiary">
+      </div>
+      <div class="form-group">
+        <label>رمز الحساب</label>
+        <input type="text" id="m_code">
+      </div>
+      <div class="form-group">
+        <label>البروفايل (GoLogin)</label>
+        <input type="text" id="m_profile">
+      </div>
+      <div class="form-group">
+        <label>تكلفة الحملة ($)</label>
+        <input type="number" step="0.001" id="m_cost" value="0">
+      </div>
+      <div class="form-group">
+        <label>عمولات أمازون ($)</label>
+        <input type="number" step="0.01" id="m_comm" value="0">
+      </div>
+      <div class="form-group">
+        <label>المكافآت الإضافية Bonus ($)</label>
+        <input type="number" step="0.01" id="m_bonus" value="0">
+      </div>
+      <div class="form-group">
+        <label>النقرات (Clicks)</label>
+        <input type="number" id="m_clicks" value="0">
+      </div>
+      <div class="form-group">
+        <label>الطلبات (Ordered)</label>
+        <input type="number" id="m_orders" value="0">
+      </div>
+      <div class="form-group">
+        <label>المشحون (Shipped)</label>
+        <input type="number" id="m_shipped" value="0">
+      </div>
+      <div class="form-group">
+        <label>إجمالي قيمة المبيعات ($)</label>
+        <input type="number" step="0.01" id="m_rev" value="0">
+      </div>
+      <div class="form-group">
+        <label>الإيميل</label>
+        <input type="text" id="m_email">
+      </div>
+      <div class="form-group">
+        <label>رابط الإعلان</label>
+        <input type="text" id="m_adurl">
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+      <button class="btn" onclick="closeCampaignModal()">إلغاء</button>
+      <button class="btn btn-primary" onclick="saveNewCampaign()">حفظ الحملة وحساب العائد</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast">تم النسخ بنجاح ✅</div>
+
+<script>
+const SEED_DATA = {"emails": [{"email": "josheprichad2555@gmail.com", "password": "..Sdf123..", "gologin": "josheprichad2555", "recovery": "shami313p@gmail.com", "twoFa": "", "status": "يعمل", "notes": "", "country": "فرنسي", "phone": ""}, {"email": "alasuf600@gmail.com", "password": "alasef10", "gologin": "josheprichad2555", "recovery": "shami313p@gmail.com", "twoFa": "", "status": "يعمل", "notes": "تم ربطه برقم وهمي بولندي", "country": "فرنسي", "phone": ""}, {"email": "aboaboah43@gmail.com", "password": "qqwwee123z", "gologin": "josheprichad2555", "recovery": "shami313p@gmail.com", "twoFa": "", "status": "يعمل", "notes": "من ابو جنادى", "country": "فرنسي", "phone": ""}, {"email": "abw225275@gmail.com", "password": "as1234as", "gologin": "wp988015", "recovery": "shami313p@gmail.com", "twoFa": "", "status": "يعمل", "notes": "", "country": "المانيا", "phone": ""}, {"email": "asefabwasad@gmail.com", "password": "alasef11", "gologin": "wp988015", "recovery": "shami313p@gmail.com", "twoFa": "", "status": "يعمل", "notes": "تم ربطه برقم وهمي بولندي", "country": "المانيا", "phone": "48721619166"}, {"email": "alasuf700@gmail.com", "password": "alasef11", "gologin": "awetorop09", "recovery": "shami313p@gmail.com", "twoFa": "", "status": "يعمل", "notes": "تم ربطه برقم وهمي بولندي", "country": "امريكا", "phone": "48729665939"}, {"email": "alasuf200@gmail.com", "password": "alasef10", "gologin": "awetorop09", "recovery": "shami313p@gmail.com", "twoFa": "", "status": "يعمل", "notes": "تم ربطه برقم وهمي بولندي", "country": "المانيا", "phone": "48739573841"}, {"email": "abwasadsyd123@gmail.com", "password": "alasef11", "gologin": "awetorop09", "recovery": "shami313p@gmail.com", "twoFa": "", "status": "يعمل", "notes": "تم ربطه برقم وهمي Thailand", "country": "امريكا", "phone": "66838408751"}, {"email": "505gacim505@gmail.com", "password": "(+505gacim505+)", "gologin": "wp988015", "recovery": "ابو خليل", "twoFa": "", "status": "يعمل", "notes": "جديد", "country": "المانيا", "phone": "رقمه السوري"}, {"email": "manaralforqan@gmail.com", "password": "forqanforqan1122334455jjkk", "gologin": "wp988015", "recovery": "shami313p@gmail.com", "twoFa": "", "status": "يعمل", "notes": "من جودت", "country": "", "phone": ""}, {"email": "abdalahsyd222@gmail.com", "password": "alasef12", "gologin": "", "recovery": "", "twoFa": "", "status": "غير محدد", "notes": "", "country": "", "phone": ""}, {"email": "suafaladlbe@gmail.com", "password": "alasef12", "gologin": "", "recovery": "", "twoFa": "", "status": "غير محدد", "notes": "", "country": "", "phone": ""}, {"email": "abwalsuaf1@gmail.com", "password": "alasef12", "gologin": "", "recovery": "", "twoFa": "", "status": "غير محدد", "notes": "", "country": "", "phone": ""}, {"email": "alshameasef@gmail.com", "password": "alasef12", "gologin": "", "recovery": "", "twoFa": "", "status": "غير محدد", "notes": "", "country": "", "phone": ""}, {"email": "abwasadalhame@gmail.com", "password": "aaa12345aaa", "gologin": "", "recovery": "", "twoFa": "", "status": "غير محدد", "notes": "", "country": "", "phone": ""}, {"email": "aa6057765@gmail.com", "password": "alasef11", "gologin": "", "recovery": "", "twoFa": "", "status": "غير محدد", "notes": "", "country": "", "phone": ""}, {"email": "alasuf500@gmail.com", "password": "alasef11", "gologin": "", "recovery": "", "twoFa": "", "status": "غير محدد", "notes": "", "country": "", "phone": ""}, {"email": "alasuf800@gmail.com", "password": "alasef11", "gologin": "", "recovery": "", "twoFa": "", "status": "قيد المراجعة", "notes": "", "country": "", "phone": ""}, {"email": "abwasad1100@gmail.com", "password": "alasef11", "gologin": "", "recovery": "", "twoFa": "", "status": "قيد المراجعة", "notes": "", "country": "", "phone": ""}, {"email": "alasuf400@gmail.com", "password": "alasef11", "gologin": "", "recovery": "", "twoFa": "", "status": "قيد المراجعة", "notes": "", "country": "", "phone": ""}, {"email": "abw290280@gmail.com", "password": "as1234as", "gologin": "", "recovery": "", "twoFa": "", "status": "قيد المراجعة", "notes": "", "country": "", "phone": ""}, {"email": "606omar606@gmail.com", "password": "@O12345$$@", "gologin": "wp988015", "recovery": "ابو خليل", "twoFa": "", "status": "مقفول", "notes": "", "country": "فرنسا", "phone": ""}, {"email": "alasyfabw12@gmail.com", "password": "alasef11", "gologin": "wp988015", "recovery": "shami313p@gmail.com", "twoFa": "", "status": "مقفول", "notes": "تم ربطه برقم وهمي بولندي", "country": "المانيا", "phone": "48724817335"}, {"email": "alasuf300@gmail.com", "password": "alasef11", "gologin": "", "recovery": "", "twoFa": "", "status": "مقفول", "notes": "", "country": "", "phone": ""}, {"email": "wp988015@gmail.com", "password": "..Fgh345..", "gologin": "", "recovery": "shami313p@gmail.com", "twoFa": "ايذينتكيتور", "status": "مقفول", "notes": "تم استرداده لك مقفول على الرقم", "country": "", "phone": ""}, {"email": "kamolrakhi2@gmail.com", "password": "..Ghj456..", "gologin": "", "recovery": "shami313p@gmail.com", "twoFa": "ايذينتكيتور", "status": "مقفول", "notes": "رقم وهمي بولندي / تم قفله", "country": "", "phone": "48731656843"}, {"email": "awetorop09@gmail.com", "password": "..Dfg234..", "gologin": "", "recovery": "shami313p@gmail.com", "twoFa": "ايذينتكيتور", "status": "مقفول", "notes": "تم سحب الحساب", "country": "", "phone": "رقم وهمي بولندي"}, {"email": "Ywoo3407@gmail.com", "password": "ytrMNB852@@", "gologin": "", "recovery": "", "twoFa": "", "status": "مقفول", "notes": "مقفول على الرقم", "country": "", "phone": ""}], "gologin": [{"accountType": "جيميل", "platform": "جو لوجن لمنصة بلوبلر ادس", "email": "baynancish@gmail.com", "password": "abduallrahman.Alshami1", "profile1": "", "profile2": "", "profile3": "", "notes": "", "country": ""}, {"accountType": "Gologin", "platform": "Gologin", "email": "josheprichad2555@gmail.com", "password": "josheprichad2555@gmail.com", "profile1": "CaseVault Tech", "profile2": "Armande Odilon", "profile3": "Lara Floriane", "notes": "3 برو", "country": "فرنسي"}, {"accountType": "Gologin", "platform": "Gologin", "email": "awetorop09@gmail.com", "password": "awetorop09@gmail.com", "profile1": "Munroe Sharleen", "profile2": "Michel Brunhilde", "profile3": "Fredy Christian", "notes": "3 برو", "country": "امريكي"}, {"accountType": "Gologin", "platform": "Gologin", "email": "wp988015@gmail.com", "password": "wp988015@gmail.com", "profile1": "manaralforqan", "profile2": "asefabwasad", "profile3": "505gacim505", "notes": "3 برو", "country": "الماني"}, {"accountType": "Gologin", "platform": "Gologin", "email": "kamolrakhi2@gmail.com", "password": "kamolrakhi2", "profile1": "", "profile2": "", "profile3": "", "notes": "فاضي حتى الان", "country": ""}], "amazon_accounts": [{"beneficiary": "شامي", "code": "SH-01", "name": "Josefiina Eliina", "storeId": "b0gvymq3gt-20", "country": "فرنسي", "status": "نشط", "product1": "قناع وجه 3 %", "promoStatus1": "جاري الترويج", "tweetUrl1": "https://t.co/hTJkFEO6dJ", "product2": "قناع وجه 3 %", "promoStatus2": "جاري الترويج", "tweetUrl2": "https://t.co/jwlZBoY2r3", "affiliateUrl1": "https://link.amazon/B0bpSTE9U", "affiliateUrl2": "https://link.amazon/B0ca2QTx6", "adsterraUrl": "https://anker-deals.baynancish.workers.dev/", "email": "josheprichad2555", "password": "..Sdf123..", "linkage": "امزون   - تويتر", "notes": "حساب رئيسي"}, {"beneficiary": "شامي", "code": "SH-02", "name": "Armande Odilon", "storeId": "b0cwq39rb9-20", "country": "فرنسي", "status": "نشط", "product1": "شاحن لاسلكي أبل", "promoStatus1": "جاري الترويج", "tweetUrl1": "https://t.co/yY1SFiBNeG", "product2": "", "promoStatus2": "", "tweetUrl2": "", "affiliateUrl1": "https://link.amazon/B06KywfDL", "affiliateUrl2": "", "adsterraUrl": "https://tech-deals-hub.baynancish.workers.dev/", "email": "aboaboah43", "password": "qqwwee123z", "linkage": "امزون   - تويتر", "notes": "الحمد لله"}, {"beneficiary": "شامي", "code": "SH-03", "name": "Munroe Sharleen", "storeId": "b0bv4sxtfz-20", "country": "اوكرانيا", "status": "نشط", "product1": "شاحن لاسلكي أبل", "promoStatus1": "جاري الترويج", "tweetUrl1": "https://t.co/kKS1jSj7dZ", "product2": "", "promoStatus2": "", "tweetUrl2": "", "affiliateUrl1": "https://link.amazon/B03wK6Z6F", "affiliateUrl2": "", "adsterraUrl": "https://baby-care-deals.baynancish.workers.dev/", "email": "alasuf700", "password": "alasef11", "linkage": "امزون   - تويتر", "notes": ""}, {"beneficiary": "شامي", "code": "SH-04", "name": "Michel Brunhilde", "storeId": "b0fmxh8stx-20", "country": "اوكرانيا", "status": "نشط", "product1": "قناع وجه 1%", "promoStatus1": "جاري الترويج", "tweetUrl1": "https://t.co/bUvpXyBVvH", "product2": "قناع وجه 3%", "promoStatus2": "جاري الترويج", "tweetUrl2": "https://t.co/l3bfTVfW9z", "affiliateUrl1": "https://amzn.to/4rzwfaK", "affiliateUrl2": "https://link.amazon/B00QDbkmn", "adsterraUrl": "https://beauty-deals-hub.baynancish.workers.dev/", "email": "alasuf200", "password": "alasef10", "linkage": "امزون   - تويتر", "notes": ""}, {"beneficiary": "شامي", "code": "SH-05", "name": "Calixte Athanase", "storeId": "b0fmxh8stx02-20", "country": "فرنسي", "status": "نشط", "product1": "ماكينة قهوي", "promoStatus1": "جاري الترويج", "tweetUrl1": "https://t.co/prhaMFIZ9K", "product2": "Natural Honey", "promoStatus2": "جاري الترويج", "tweetUrl2": "https://t.co/bn5HobgtQG", "affiliateUrl1": "https://amzn.to/4rU1tcK", "affiliateUrl2": "https://amzn.to/3VBMybb", "adsterraUrl": "", "email": "abdalahsyd222", "password": "alasef12", "linkage": "امزون   - تويتر", "notes": "35"}, {"beneficiary": "ابو مخلص", "code": "MK-01", "name": "Lara Floriane", "storeId": "b09mqwwp8705-20", "country": "فرنسي", "status": "نشط", "product1": "كرياتين", "promoStatus1": "جاري الترويج", "tweetUrl1": "https://t.co/8nl4GnND5X", "product2": "منفاخ هواء", "promoStatus2": "جاري الترويج", "tweetUrl2": "https://t.co/WAbruhKUYz", "affiliateUrl1": "https://link.amazon/B030oVGHn", "affiliateUrl2": "https://link.amazon/B01xSCmPG", "adsterraUrl": "https://travel-pack-deals.baynancish.workers.dev/", "email": "alasuf600", "password": "alasef10", "linkage": "امزون   - تويتر", "notes": ""}, {"beneficiary": "ابو خليل", "code": "KH-01", "name": "Nora Frank", "storeId": "b08fj678yk-20", "country": "الماني", "status": "محظور", "product1": "منقي هواء", "promoStatus1": "ملغى / مؤرشف", "tweetUrl1": "https://t.co/RiJi2dBukN", "product2": "", "promoStatus2": "ملغى / مؤرشف", "tweetUrl2": "", "affiliateUrl1": "https://amzn.to/46ULjX1", "affiliateUrl2": "", "adsterraUrl": "", "email": "505gacim505", "password": "(+505gacim505+)", "linkage": "امزون   - تويتر", "notes": ""}, {"beneficiary": "جودت", "code": "JD-01", "name": "Louise Gottschalk", "storeId": "b0fjldnqz7-20", "country": "الماني", "status": "محظور", "product1": "كرسي اطفال للسيارة", "promoStatus1": "ملغى / مؤرشف", "tweetUrl1": "https://t.co/li3KOirH1o", "product2": "", "promoStatus2": "ملغى / مؤرشف", "tweetUrl2": "", "affiliateUrl1": "https://amzn.to/4i31oA2", "affiliateUrl2": "", "adsterraUrl": "", "email": "manaralforqan", "password": "forqanforqan1122334455jjkk", "linkage": "امزون   - تويتر", "notes": ""}, {"beneficiary": "شامي", "code": "SH-06", "name": "Fredy Christian", "storeId": "b01n5c39cx-20", "country": "الماني", "status": "محظور", "product1": "شواحن وبنوك طاقة", "promoStatus1": "ملغى / مؤرشف", "tweetUrl1": "", "product2": "", "promoStatus2": "تم الإيقاف", "tweetUrl2": "", "affiliateUrl1": "https://link.amazon/B0bi7G1yS", "affiliateUrl2": "https://amzn.to/4rzwfaK", "adsterraUrl": "", "email": "abwasadsyd123", "password": "alasef11", "linkage": "امزون   - تويتر", "notes": "موقوف مؤقتاً"}, {"beneficiary": "شامي", "code": "SH-07", "name": "Hannes Ignaz", "storeId": "sparkplaytoys-20", "country": "الماني", "status": "محظور", "product1": "إلكترونيات وملحقات", "promoStatus1": "ملغى / مؤرشف", "tweetUrl1": "https://t.co/NfPZeTssmt", "product2": "", "promoStatus2": "", "tweetUrl2": "", "affiliateUrl1": "https://link.amazon/B01Dxim28", "affiliateUrl2": "", "adsterraUrl": "https://toys-deals-hub.baynancish.workers.dev/", "email": "asefabwasad", "password": "alasef11", "linkage": "امزون   - تويتر", "notes": "تقيد الإيميل والحساب"}], "historical_links": [{"beneficiary": "شامي", "accountName": "Josefiina Eliina", "product": "قناع وجه 3 %", "linkType": "رابط أفلييت قديم", "url": "https://link.amazon/B05EtNv4X", "notes": "أفلييت قديم محفوظ مرجعياً"}, {"beneficiary": "شامي", "accountName": "Josefiina Eliina", "product": "قناع وجه 3 %", "linkType": "رابط أفلييت قديم", "url": "https://link.amazon/B0hDq4Y87", "notes": "أفلييت قديم محفوظ مرجعياً"}, {"beneficiary": "شامي", "accountName": "Josefiina Eliina", "product": "قناع وجه 3 %", "linkType": "تغريدة تويتر بديلة", "url": "https://t.co/xI5apfjus1", "notes": "تغريدة قديمة محفوظة"}, {"beneficiary": "ابو مخلص", "accountName": "Lara Floriane", "product": "Creatine Monohydrate", "linkType": "رابط أفلييت قديم", "url": "https://link.amazon/B0dR4Edig", "notes": "أفلييت قديم محفوظ مرجعياً"}, {"beneficiary": "ابو مخلص", "accountName": "Lara Floriane", "product": "Creatine Monohydrate", "linkType": "رابط أفلييت قديم", "url": "https://link.amazon/B08HCvBtj", "notes": "أفلييت قديم محفوظ مرجعياً"}, {"beneficiary": "ابو مخلص", "accountName": "Lara Floriane", "product": "Creatine Monohydrate", "linkType": "تغريدة تويتر بديلة", "url": "https://t.co/pmppT6sipk", "notes": "تغريدة قديمة محفوظة"}, {"beneficiary": "شامي", "accountName": "Josefiina Eliina", "product": "قناع وجه 3 %", "linkType": "رابط أفلييت سابق", "url": "https://link.amazon/B0ca2QTx6", "notes": "رابط بديل محفوظ"}], "beneficiaries": [{"id": 1, "name": "شامي", "baseCapital": 100.0, "accountCodeRange": "SH-01:07"}, {"id": 2, "name": "ابو مخلص", "baseCapital": 30.0, "accountCodeRange": "MK-01"}, {"id": 3, "name": "ابو خليل", "baseCapital": 100.0, "accountCodeRange": "KH-01"}, {"id": 4, "name": "جودت", "baseCapital": 20.0, "accountCodeRange": "JD-01"}], "products_catalog": [{"id": 1, "product": "قناع وجه 3 %", "beneficiary": "شامي", "accountCode": "SH-01", "profile": "Josefiina Eliina", "capital": 100.0, "email": "josheprichad2555@gmail.com", "password": "..Sdf123..", "adUrl": "https://t.co/hTJkFEO6dJ"}, {"id": 2, "product": "شاحن لاسلكي أبل", "beneficiary": "شامي", "accountCode": "SH-02", "profile": "Armande Odilon", "capital": 100.0, "email": "aboaboah43@gmail.com", "password": "qqwwee123z", "adUrl": "https://t.co/yY1SFiBNeG"}, {"id": 3, "product": "شاحن لاسلكي أبل - أوكرانيا", "beneficiary": "شامي", "accountCode": "SH-03", "profile": "Munroe Sharleen", "capital": 100.0, "email": "alasuf700@gmail.com", "password": "alasef11", "adUrl": "https://t.co/kKS1jSj7dZ"}, {"id": 4, "product": "قناع وجه 1%", "beneficiary": "شامي", "accountCode": "SH-04", "profile": "Michel Brunhilde", "capital": 100.0, "email": "alasuf200@gmail.com", "password": "alasef10", "adUrl": "https://t.co/bUvpXyBVvH"}, {"id": 5, "product": "ماكينة قهوي", "beneficiary": "شامي", "accountCode": "SH-05", "profile": "Calixte Athanase", "capital": 100.0, "email": "abdalahsyd222@gmail.com", "password": "alasef12", "adUrl": "https://t.co/prhaMFIZ9K"}, {"id": 6, "product": "Natural Honey", "beneficiary": "شامي", "accountCode": "SH-05", "profile": "Calixte Athanase", "capital": 100.0, "email": "abdalahsyd222@gmail.com", "password": "alasef12", "adUrl": "https://t.co/bn5HobgtQG"}, {"id": 7, "product": "كرياتين", "beneficiary": "ابو مخلص", "accountCode": "MK-01", "profile": "Lara Floriane", "capital": 30.0, "email": "alasuf600@gmail.com", "password": "alasef10", "adUrl": "https://t.co/8nl4GnND5X"}, {"id": 8, "product": "منفاخ هواء", "beneficiary": "ابو مخلص", "accountCode": "MK-01", "profile": "Lara Floriane", "capital": 30.0, "email": "alasuf600@gmail.com", "password": "alasef10", "adUrl": "https://t.co/WAbruhKUYz"}, {"id": 9, "product": "منقي هواء", "beneficiary": "ابو خليل", "accountCode": "KH-01", "profile": "Nora Frank", "capital": 100.0, "email": "505gacim505@gmail.com", "password": "(+505gacim505+)", "adUrl": "https://t.co/RiJi2dBukN"}, {"id": 10, "product": "كرسي اطفال للسيارة", "beneficiary": "جودت", "accountCode": "JD-01", "profile": "Louise Gottschalk", "capital": 20.0, "email": "manaralforqan@gmail.com", "password": "forqanforqan1122334455jjkk", "adUrl": "https://t.co/li3KOirH1o"}, {"id": 11, "product": "شواحن وبنوك طاقة", "beneficiary": "شامي", "accountCode": "SH-06", "profile": "Fredy Christian", "capital": 100.0, "email": "abwasadsyd123@gmail.com", "password": "alasef11", "adUrl": "https://anker-deals.baynancish.workers.dev/"}, {"id": 12, "product": "إلكترونيات وملحقات", "beneficiary": "شامي", "accountCode": "SH-07", "profile": "Hannes Ignaz", "capital": 100.0, "email": "asefabwasad@gmail.com", "password": "alasef11", "adUrl": "https://t.co/NfPZeTssmt"}, {"id": 13, "product": "قناع وجه 3%", "beneficiary": "شامي", "accountCode": "SH-04", "profile": "Michel Brunhilde", "capital": 100.0, "email": "alasuf200@gmail.com", "password": "alasef10", "adUrl": "[link removed]"}], "campaigns": [{"seq": 1, "date": "2026-09-25", "beneficiary": "شامي", "accountCode": "SH-04", "product": "قناع وجه 1%", "email": "alasuf200", "cost": 0.45, "profile": "Michel Brunhilde", "password": "alasef10", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/bUvpXyBVvH"}, {"seq": 2, "date": "2026-09-25", "beneficiary": "ابو مخلص", "accountCode": "MK-01", "product": "كرياتين", "email": "alasuf600", "cost": 0.623, "profile": "Lara Floriane", "password": "alasef10", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/8nl4GnND5X"}, {"seq": 3, "date": "2026-09-25", "beneficiary": "شامي", "accountCode": "SH-02", "product": "شاحن لاسلكي أبل", "email": "aboaboah43", "cost": 0.634, "profile": "Armande Odilon", "password": "qqwwee123z", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 14.65, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/yY1SFiBNeG"}, {"seq": 4, "date": "2026-09-27", "beneficiary": "شامي", "accountCode": "SH-04", "product": "قناع وجه 1%", "email": "alasuf200", "cost": 2.756, "profile": "Michel Brunhilde", "password": "alasef10", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/bUvpXyBVvH"}, {"seq": 5, "date": "2026-09-27", "beneficiary": "ابو مخلص", "accountCode": "MK-01", "product": "كرياتين", "email": "alasuf600", "cost": 7.237, "profile": "Lara Floriane", "password": "alasef10", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/8nl4GnND5X"}, {"seq": 6, "date": "2026-09-27", "beneficiary": "شامي", "accountCode": "SH-02", "product": "شاحن لاسلكي أبل", "email": "aboaboah43", "cost": 7.15, "profile": "Armande Odilon", "password": "qqwwee123z", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/yY1SFiBNeG"}, {"seq": 7, "date": "2026-09-28", "beneficiary": "شامي", "accountCode": "SH-04", "product": "قناع وجه 1%", "email": "alasuf200", "cost": 1.554, "profile": "Michel Brunhilde", "password": "alasef10", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 1.92, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/bUvpXyBVvH"}, {"seq": 8, "date": "2026-09-28", "beneficiary": "ابو مخلص", "accountCode": "MK-01", "product": "كرياتين", "email": "alasuf600", "cost": 1.564, "profile": "Lara Floriane", "password": "alasef10", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.4, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/8nl4GnND5X"}, {"seq": 9, "date": "2026-09-28", "beneficiary": "شامي", "accountCode": "SH-02", "product": "شاحن لاسلكي أبل", "email": "aboaboah43", "cost": 1.545, "profile": "Armande Odilon", "password": "qqwwee123z", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 9.76, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/yY1SFiBNeG"}, {"seq": 10, "date": "2026-09-29", "beneficiary": "شامي", "accountCode": "SH-04", "product": "قناع وجه 1%", "email": "alasuf200", "cost": 5.914, "profile": "Michel Brunhilde", "password": "alasef10", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 3.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/bUvpXyBVvH"}, {"seq": 11, "date": "2026-09-29", "beneficiary": "ابو مخلص", "accountCode": "MK-01", "product": "كرياتين", "email": "alasuf600", "cost": 8.861, "profile": "Lara Floriane", "password": "alasef10", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 12.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/8nl4GnND5X"}, {"seq": 12, "date": "2026-09-29", "beneficiary": "شامي", "accountCode": "SH-02", "product": "شاحن لاسلكي أبل", "email": "aboaboah43", "cost": 9.249, "profile": "Armande Odilon", "password": "qqwwee123z", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/yY1SFiBNeG"}, {"seq": 13, "date": "2026-10-01", "beneficiary": "شامي", "accountCode": "SH-04", "product": "قناع وجه 1%", "email": "alasuf200", "cost": 1.546, "profile": "Michel Brunhilde", "password": "alasef10", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/bUvpXyBVvH"}, {"seq": 14, "date": "2026-10-01", "beneficiary": "شامي", "accountCode": "SH-02", "product": "شاحن لاسلكي أبل", "email": "aboaboah43", "cost": 1.416, "profile": "Armande Odilon", "password": "qqwwee123z", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/yY1SFiBNeG"}, {"seq": 15, "date": "2026-10-02", "beneficiary": "شامي", "accountCode": "SH-04", "product": "قناع وجه 1%", "email": "alasuf200", "cost": 3.089, "profile": "Michel Brunhilde", "password": "alasef10", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 51.27, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/bUvpXyBVvH"}, {"seq": 16, "date": "2026-10-02", "beneficiary": "ابو مخلص", "accountCode": "MK-01", "product": "كرياتين", "email": "alasuf600", "cost": 0.0, "profile": "Lara Floriane", "password": "alasef10", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 25.41, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/8nl4GnND5X"}, {"seq": 17, "date": "2026-10-02", "beneficiary": "شامي", "accountCode": "SH-02", "product": "شاحن لاسلكي أبل", "email": "aboaboah43", "cost": 3.119, "profile": "Armande Odilon", "password": "qqwwee123z", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 18.16, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/yY1SFiBNeG"}, {"seq": 18, "date": "2026-10-02", "beneficiary": "شامي", "accountCode": "SH-01", "product": "قناع وجه 3 %", "email": "josheprichad2555", "cost": 0.0, "profile": "Josefiina Eliina", "password": "..Sdf123..", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 1.14, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/hTJkFEO6dJ"}, {"seq": 19, "date": "2026-10-03", "beneficiary": "ابو خليل", "accountCode": "KH-01", "product": "منقي هواء", "email": "505gacim505", "cost": 0.0, "profile": "Nora Frank", "password": "(+505gacim505+)", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/RiJi2dBukN"}, {"seq": 20, "date": "2026-10-03", "beneficiary": "شامي", "accountCode": "SH-01", "product": "قناع وجه 3 %", "email": "josheprichad2555", "cost": 5.235, "profile": "Josefiina Eliina", "password": "..Sdf123..", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/hTJkFEO6dJ"}, {"seq": 21, "date": "2026-10-03", "beneficiary": "شامي", "accountCode": "SH-01", "product": "قناع وجه 3 %", "email": "josheprichad2555", "cost": 5.182, "profile": "Josefiina Eliina", "password": "..Sdf123..", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 1.8, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/hTJkFEO6dJ"}, {"seq": 22, "date": "2026-10-03", "beneficiary": "شامي", "accountCode": "SH-04", "product": "قناع وجه 1%", "email": "alasuf200", "cost": 5.723, "profile": "Michel Brunhilde", "password": "alasef10", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 10.46, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/bUvpXyBVvH"}, {"seq": 23, "date": "2026-10-03", "beneficiary": "ابو مخلص", "accountCode": "MK-01", "product": "كرياتين", "email": "alasuf600", "cost": 6.365, "profile": "Lara Floriane", "password": "alasef10", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.17, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/8nl4GnND5X"}, {"seq": 24, "date": "2026-10-03", "beneficiary": "شامي", "accountCode": "SH-02", "product": "شاحن لاسلكي أبل", "email": "aboaboah43", "cost": 5.215, "profile": "Armande Odilon", "password": "qqwwee123z", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 12.95, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/yY1SFiBNeG"}, {"seq": 25, "date": "2026-10-04", "beneficiary": "شامي", "accountCode": "SH-01", "product": "قناع وجه 3 %", "email": "josheprichad2555", "cost": 1.634, "profile": "Josefiina Eliina", "password": "..Sdf123..", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/hTJkFEO6dJ"}, {"seq": 26, "date": "2026-10-04", "beneficiary": "شامي", "accountCode": "SH-01", "product": "قناع وجه 3 %", "email": "josheprichad2555", "cost": 1.614, "profile": "Josefiina Eliina", "password": "..Sdf123..", "clicks": 1188, "orderedItems": 11, "orderedRevenue": 271.89, "shippedItems": 12, "returnedItems": 0, "totalRevenue": 274.56, "commission": 8.21, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/hTJkFEO6dJ"}, {"seq": 27, "date": "2026-10-04", "beneficiary": "شامي", "accountCode": "SH-04", "product": "قناع وجه 1%", "email": "alasuf200", "cost": 1.757, "profile": "Michel Brunhilde", "password": "alasef10", "clicks": 1285, "orderedItems": 37, "orderedRevenue": 564.71, "shippedItems": 87, "returnedItems": 0, "totalRevenue": 522.99, "commission": 11.43, "bonus": 80.0, "isPending": false, "adUrl": "https://t.co/bUvpXyBVvH"}, {"seq": 28, "date": "2026-10-04", "beneficiary": "شامي", "accountCode": "SH-02", "product": "شاحن لاسلكي أبل", "email": "aboaboah43", "cost": 1.204, "profile": "Armande Odilon", "password": "qqwwee123z", "clicks": 912, "orderedItems": 30, "orderedRevenue": 1247.02, "shippedItems": 29, "returnedItems": 0, "totalRevenue": 987.4, "commission": 29.08, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/yY1SFiBNeG"}, {"seq": 29, "date": "2026-10-04", "beneficiary": "ابو مخلص", "accountCode": "MK-01", "product": "كرياتين", "email": "alasuf600", "cost": 1.864, "profile": "Lara Floriane", "password": "alasef10", "clicks": 685, "orderedItems": 6, "orderedRevenue": 98.32, "shippedItems": 10, "returnedItems": 0, "totalRevenue": 183.18, "commission": 5.04, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/8nl4GnND5X"}, {"seq": 30, "date": "2026-10-04", "beneficiary": "ابو خليل", "accountCode": "KH-01", "product": "منقي هواء", "email": "505gacim505", "cost": 1.625, "profile": "Nora Frank", "password": "(+505gacim505+)", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/RiJi2dBukN"}, {"seq": 31, "date": "2026-10-05", "beneficiary": "جودت", "accountCode": "JD-01", "product": "كرسي اطفال للسيارة", "email": "manaralforqan", "cost": 3.024, "profile": "Louise Gottschalk", "password": "forqanforqan1122334455jjkk", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/li3KOirH1o"}, {"seq": 32, "date": "2026-10-05", "beneficiary": "ابو خليل", "accountCode": "KH-01", "product": "منقي هواء", "email": "505gacim505", "cost": 1.633, "profile": "Nora Frank", "password": "(+505gacim505+)", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/RiJi2dBukN"}, {"seq": 33, "date": "2026-10-05", "beneficiary": "شامي", "accountCode": "SH-03", "product": "شاحن لاسلكي أبل - أوكرانيا", "email": "alasuf700", "cost": 0.775, "profile": "Munroe Sharleen", "password": "alasef11", "clicks": 1, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/kKS1jSj7dZ"}, {"seq": 34, "date": "2026-10-05", "beneficiary": "شامي", "accountCode": "SH-01", "product": "قناع وجه 3 %", "email": "josheprichad2555", "cost": 4.09, "profile": "Josefiina Eliina", "password": "..Sdf123..", "clicks": 1418, "orderedItems": 27, "orderedRevenue": 671.29, "shippedItems": 22, "returnedItems": 0, "totalRevenue": 487.58, "commission": 14.22, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/hTJkFEO6dJ"}, {"seq": 35, "date": "2026-10-05", "beneficiary": "شامي", "accountCode": "SH-04", "product": "قناع وجه 1%", "email": "alasuf200", "cost": 4.393, "profile": "Michel Brunhilde", "password": "alasef10", "clicks": 3008, "orderedItems": 44, "orderedRevenue": 892.92, "shippedItems": 33, "returnedItems": 1, "totalRevenue": 695.61, "commission": 25.11, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/bUvpXyBVvH"}, {"seq": 36, "date": "2026-10-05", "beneficiary": "ابو مخلص", "accountCode": "MK-01", "product": "كرياتين", "email": "alasuf600", "cost": 4.293, "profile": "Lara Floriane", "password": "alasef10", "clicks": 1440, "orderedItems": 32, "orderedRevenue": 221.56, "shippedItems": 20, "returnedItems": 0, "totalRevenue": 136.61, "commission": 4.29, "bonus": 3.0, "isPending": false, "adUrl": "https://t.co/8nl4GnND5X"}, {"seq": 37, "date": "2026-10-05", "beneficiary": "شامي", "accountCode": "SH-02", "product": "شاحن لاسلكي أبل", "email": "aboaboah43", "cost": 4.874, "profile": "Armande Odilon", "password": "qqwwee123z", "clicks": 3385, "orderedItems": 46, "orderedRevenue": 969.98, "shippedItems": 34, "returnedItems": 1, "totalRevenue": 736.92, "commission": 20.71, "bonus": 40.0, "isPending": false, "adUrl": "https://t.co/yY1SFiBNeG"}, {"seq": 38, "date": "2026-10-06", "beneficiary": "جودت", "accountCode": "JD-01", "product": "كرسي اطفال للسيارة", "email": "manaralforqan", "cost": 5.15, "profile": "Louise Gottschalk", "password": "forqanforqan1122334455jjkk", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/li3KOirH1o"}, {"seq": 39, "date": "2026-10-06", "beneficiary": "ابو خليل", "accountCode": "KH-01", "product": "منقي هواء", "email": "505gacim505", "cost": 4.925, "profile": "Nora Frank", "password": "(+505gacim505+)", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/RiJi2dBukN"}, {"seq": 40, "date": "2026-10-06", "beneficiary": "شامي", "accountCode": "SH-03", "product": "شاحن لاسلكي أبل - أوكرانيا", "email": "alasuf700", "cost": 5.037, "profile": "Munroe Sharleen", "password": "alasef11", "clicks": 2343, "orderedItems": 11, "orderedRevenue": 217.75, "shippedItems": 1, "returnedItems": 0, "totalRevenue": 10.99, "commission": 0.0, "bonus": 3.0, "isPending": false, "adUrl": "https://t.co/kKS1jSj7dZ"}, {"seq": 41, "date": "2026-10-06", "beneficiary": "شامي", "accountCode": "SH-01", "product": "قناع وجه 3 %", "email": "josheprichad2555", "cost": 5.083, "profile": "Josefiina Eliina", "password": "..Sdf123..", "clicks": 1563, "orderedItems": 7, "orderedRevenue": 122.55, "shippedItems": 7, "returnedItems": 0, "totalRevenue": 169.01, "commission": 7.33, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/hTJkFEO6dJ"}, {"seq": 42, "date": "2026-10-06", "beneficiary": "شامي", "accountCode": "SH-04", "product": "قناع وجه 1%", "email": "alasuf200", "cost": 5.045, "profile": "Michel Brunhilde", "password": "alasef10", "clicks": 3447, "orderedItems": 60, "orderedRevenue": 1577.75, "shippedItems": 52, "returnedItems": 0, "totalRevenue": 1009.97, "commission": 33.02, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/bUvpXyBVvH"}, {"seq": 43, "date": "2026-10-06", "beneficiary": "ابو مخلص", "accountCode": "MK-01", "product": "كرياتين", "email": "alasuf600", "cost": 5.226, "profile": "Lara Floriane", "password": "alasef10", "clicks": 1529, "orderedItems": 9, "orderedRevenue": 112.94, "shippedItems": 16, "returnedItems": 0, "totalRevenue": 166.89, "commission": 4.89, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/8nl4GnND5X"}, {"seq": 44, "date": "2026-10-06", "beneficiary": "شامي", "accountCode": "SH-02", "product": "شاحن لاسلكي أبل", "email": "aboaboah43", "cost": 5.754, "profile": "Armande Odilon", "password": "qqwwee123z", "clicks": 4275, "orderedItems": 74, "orderedRevenue": 1386.08, "shippedItems": 48, "returnedItems": 0, "totalRevenue": 1132.16, "commission": 37.42, "bonus": 80.0, "isPending": false, "adUrl": "https://t.co/yY1SFiBNeG"}, {"seq": 45, "date": "2026-10-07", "beneficiary": "جودت", "accountCode": "JD-01", "product": "كرسي اطفال للسيارة", "email": "manaralforqan", "cost": 0.006, "profile": "Louise Gottschalk", "password": "forqanforqan1122334455jjkk", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/li3KOirH1o"}, {"seq": 46, "date": "2026-10-07", "beneficiary": "ابو خليل", "accountCode": "KH-01", "product": "منقي هواء", "email": "505gacim505", "cost": 0.101, "profile": "Nora Frank", "password": "(+505gacim505+)", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/RiJi2dBukN"}, {"seq": 47, "date": "2026-10-07", "beneficiary": "شامي", "accountCode": "SH-03", "product": "شاحن لاسلكي أبل - أوكرانيا", "email": "alasuf700", "cost": 0.0, "profile": "Munroe Sharleen", "password": "alasef11", "clicks": 17, "orderedItems": 18, "orderedRevenue": 302.94, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/kKS1jSj7dZ"}, {"seq": 48, "date": "2026-10-07", "beneficiary": "شامي", "accountCode": "SH-01", "product": "قناع وجه 3 %", "email": "josheprichad2555", "cost": 0.006, "profile": "Josefiina Eliina", "password": "..Sdf123..", "clicks": 41, "orderedItems": 37, "orderedRevenue": 224.55, "shippedItems": 39, "returnedItems": 0, "totalRevenue": 273.62, "commission": 10.75, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/hTJkFEO6dJ"}, {"seq": 49, "date": "2026-10-07", "beneficiary": "شامي", "accountCode": "SH-04", "product": "قناع وجه 1%", "email": "alasuf200", "cost": 3.19, "profile": "Michel Brunhilde", "password": "alasef10", "clicks": 2260, "orderedItems": 105, "orderedRevenue": 2588.56, "shippedItems": 59, "returnedItems": 0, "totalRevenue": 1022.82, "commission": 31.4, "bonus": 40.0, "isPending": false, "adUrl": "https://t.co/bUvpXyBVvH"}, {"seq": 50, "date": "2026-10-07", "beneficiary": "ابو مخلص", "accountCode": "MK-01", "product": "كرياتين", "email": "alasuf600", "cost": 0.006, "profile": "Lara Floriane", "password": "alasef10", "clicks": 37, "orderedItems": 13, "orderedRevenue": 527.38, "shippedItems": 6, "returnedItems": 0, "totalRevenue": 111.25, "commission": 3.5, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/8nl4GnND5X"}, {"seq": 51, "date": "2026-10-07", "beneficiary": "شامي", "accountCode": "SH-02", "product": "شاحن لاسلكي أبل", "email": "aboaboah43", "cost": 3.627, "profile": "Armande Odilon", "password": "qqwwee123z", "clicks": 2708, "orderedItems": 126, "orderedRevenue": 3010.74, "shippedItems": 70, "returnedItems": 0, "totalRevenue": 1230.81, "commission": 40.76, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/yY1SFiBNeG"}, {"seq": 52, "date": "2026-10-08", "beneficiary": "جودت", "accountCode": "JD-01", "product": "كرسي اطفال للسيارة", "email": "manaralforqan", "cost": 0.0, "profile": "Louise Gottschalk", "password": "forqanforqan1122334455jjkk", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/li3KOirH1o"}, {"seq": 53, "date": "2026-10-08", "beneficiary": "ابو خليل", "accountCode": "KH-01", "product": "منقي هواء", "email": "505gacim505", "cost": 0.0, "profile": "Nora Frank", "password": "(+505gacim505+)", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/RiJi2dBukN"}, {"seq": 54, "date": "2026-10-08", "beneficiary": "شامي", "accountCode": "SH-03", "product": "شاحن لاسلكي أبل - أوكرانيا", "email": "alasuf700", "cost": 0.0, "profile": "Munroe Sharleen", "password": "alasef11", "clicks": 12, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 13, "returnedItems": 0, "totalRevenue": 291.01, "commission": 8.34, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/kKS1jSj7dZ"}, {"seq": 55, "date": "2026-10-08", "beneficiary": "شامي", "accountCode": "SH-01", "product": "قناع وجه 3 %", "email": "josheprichad2555", "cost": 0.0, "profile": "Josefiina Eliina", "password": "..Sdf123..", "clicks": 23, "orderedItems": 1, "orderedRevenue": 25.99, "shippedItems": 6, "returnedItems": 0, "totalRevenue": 131.23, "commission": 4.63, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/hTJkFEO6dJ"}, {"seq": 56, "date": "2026-10-08", "beneficiary": "شامي", "accountCode": "SH-04", "product": "قناع وجه 1%", "email": "alasuf200", "cost": 0.0, "profile": "Michel Brunhilde", "password": "alasef10", "clicks": 11, "orderedItems": 15, "orderedRevenue": 328.08, "shippedItems": 37, "returnedItems": 0, "totalRevenue": 1032.21, "commission": 31.43, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/bUvpXyBVvH"}, {"seq": 57, "date": "2026-10-08", "beneficiary": "ابو مخلص", "accountCode": "MK-01", "product": "كرياتين", "email": "alasuf600", "cost": 0.0, "profile": "Lara Floriane", "password": "alasef10", "clicks": 19, "orderedItems": 3, "orderedRevenue": 51.84, "shippedItems": 6, "returnedItems": 0, "totalRevenue": 148.71, "commission": 5.41, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/8nl4GnND5X"}, {"seq": 58, "date": "2026-10-08", "beneficiary": "شامي", "accountCode": "SH-02", "product": "شاحن لاسلكي أبل", "email": "aboaboah43", "cost": 0.0, "profile": "Armande Odilon", "password": "qqwwee123z", "clicks": 15, "orderedItems": 31, "orderedRevenue": 534.27, "shippedItems": 56, "returnedItems": 0, "totalRevenue": 1118.95, "commission": 34.87, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/yY1SFiBNeG"}, {"seq": 59, "date": "2026-10-09", "beneficiary": "ابو مخلص", "accountCode": "MK-01", "product": "كرياتين", "email": "alasuf600", "cost": 1.43, "profile": "Lara Floriane", "password": "alasef10", "clicks": 896, "orderedItems": 10, "orderedRevenue": 162.48, "shippedItems": 5, "returnedItems": 0, "totalRevenue": 319.48, "commission": 9.12, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/8nl4GnND5X"}, {"seq": 60, "date": "2026-10-09", "beneficiary": "شامي", "accountCode": "SH-05", "product": "ماكينة قهوي", "email": "abdalahsyd222", "cost": 1.53, "profile": "Calixte Athanase", "password": "alasef12", "clicks": 1134, "orderedItems": 4, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/prhaMFIZ9K"}, {"seq": 61, "date": "2026-10-09", "beneficiary": "شامي", "accountCode": "SH-04", "product": "قناع وجه 1%", "email": "alasuf200", "cost": 0.91, "profile": "Michel Brunhilde", "password": "alasef10", "clicks": 1227, "orderedItems": 18, "orderedRevenue": 451.12, "shippedItems": 28, "returnedItems": 1, "totalRevenue": 602.75, "commission": 18.35, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/bUvpXyBVvH"}, {"seq": 62, "date": "2026-10-09", "beneficiary": "شامي", "accountCode": "SH-03", "product": "شاحن لاسلكي أبل - أوكرانيا", "email": "alasuf700", "cost": 0.46, "profile": "Munroe Sharleen", "password": "alasef11", "clicks": 9, "orderedItems": 1, "orderedRevenue": 34.99, "shippedItems": 5, "returnedItems": 0, "totalRevenue": 88.97, "commission": 2.9, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/kKS1jSj7dZ"}, {"seq": 63, "date": "2026-10-09", "beneficiary": "شامي", "accountCode": "SH-01", "product": "قناع وجه 3 %", "email": "josheprichad2555", "cost": 0.89, "profile": "Josefiina Eliina", "password": "..Sdf123..", "clicks": 226, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 1, "returnedItems": 0, "totalRevenue": 28.47, "commission": 0.85, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/hTJkFEO6dJ"}, {"seq": 64, "date": "2026-10-09", "beneficiary": "شامي", "accountCode": "SH-04", "product": "قناع وجه 1%", "email": "alasuf200", "cost": 0.94, "profile": "Michel Brunhilde", "password": "alasef10", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": true, "adUrl": "https://t.co/bUvpXyBVvH"}, {"seq": 65, "date": "2026-10-09", "beneficiary": "ابو مخلص", "accountCode": "MK-01", "product": "منفاخ هواء", "email": "alasuf600", "cost": 1.41, "profile": "Lara Floriane", "password": "alasef10", "clicks": 409, "orderedItems": 5, "orderedRevenue": 71.24, "shippedItems": 11, "returnedItems": 0, "totalRevenue": 166.97, "commission": 8.45, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/WAbruhKUYz"}, {"seq": 66, "date": "2026-10-09", "beneficiary": "شامي", "accountCode": "SH-02", "product": "شاحن لاسلكي أبل", "email": "aboaboah43", "cost": 0.46, "profile": "Armande Odilon", "password": "qqwwee123z", "clicks": 664, "orderedItems": 4, "orderedRevenue": 40.44, "shippedItems": 16, "returnedItems": 1, "totalRevenue": 235.14, "commission": 7.54, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/yY1SFiBNeG"}, {"seq": 67, "date": "2026-10-10", "beneficiary": "ابو مخلص", "accountCode": "MK-01", "product": "كرياتين", "email": "alasuf600", "cost": 0.0, "profile": "Lara Floriane", "password": "alasef10", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": true, "adUrl": "https://t.co/8nl4GnND5X"}, {"seq": 68, "date": "2026-10-10", "beneficiary": "شامي", "accountCode": "SH-05", "product": "ماكينة قهوي", "email": "abdalahsyd222", "cost": 1.6, "profile": "Calixte Athanase", "password": "alasef12", "clicks": 1217, "orderedItems": 24, "orderedRevenue": 0.0, "shippedItems": 14, "returnedItems": 0, "totalRevenue": 0.0, "commission": 7.74, "bonus": 0.5, "isPending": false, "adUrl": "https://t.co/prhaMFIZ9K"}, {"seq": 69, "date": "2026-10-10", "beneficiary": "شامي", "accountCode": "SH-04", "product": "قناع وجه 1%", "email": "alasuf200", "cost": 0.0, "profile": "Michel Brunhilde", "password": "alasef10", "clicks": 26, "orderedItems": 17, "orderedRevenue": 351.36, "shippedItems": 27, "returnedItems": 1, "totalRevenue": 880.78, "commission": 31.65, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/bUvpXyBVvH"}, {"seq": 70, "date": "2026-10-10", "beneficiary": "شامي", "accountCode": "SH-03", "product": "شاحن لاسلكي أبل - أوكرانيا", "email": "alasuf700", "cost": 0.0, "profile": "Munroe Sharleen", "password": "alasef11", "clicks": 7, "orderedItems": 1, "orderedRevenue": 392.04, "shippedItems": 2, "returnedItems": 0, "totalRevenue": 400.03, "commission": 12.08, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/kKS1jSj7dZ"}, {"seq": 71, "date": "2026-10-10", "beneficiary": "شامي", "accountCode": "SH-01", "product": "قناع وجه 3 %", "email": "josheprichad2555", "cost": 0.34, "profile": "Josefiina Eliina", "password": "..Sdf123..", "clicks": 137, "orderedItems": 1, "orderedRevenue": 29.95, "shippedItems": 1, "returnedItems": 0, "totalRevenue": 29.95, "commission": 0.3, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/hTJkFEO6dJ"}, {"seq": 72, "date": "2026-10-10", "beneficiary": "شامي", "accountCode": "SH-04", "product": "قناع وجه 1%", "email": "alasuf200", "cost": 0.0, "profile": "Michel Brunhilde", "password": "alasef10", "clicks": 0, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": true, "adUrl": "https://t.co/bUvpXyBVvH"}, {"seq": 73, "date": "2026-10-10", "beneficiary": "ابو مخلص", "accountCode": "MK-01", "product": "منفاخ هواء", "email": "alasuf600", "cost": 1.51, "profile": "Lara Floriane", "password": "alasef10", "clicks": 409, "orderedItems": 5, "orderedRevenue": 71.24, "shippedItems": 11, "returnedItems": 0, "totalRevenue": 166.97, "commission": 8.45, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/WAbruhKUYz"}, {"seq": 74, "date": "2026-10-10", "beneficiary": "شامي", "accountCode": "SH-02", "product": "شاحن لاسلكي أبل", "email": "aboaboah43", "cost": 0.54, "profile": "Armande Odilon", "password": "qqwwee123z", "clicks": 393, "orderedItems": 4, "orderedRevenue": 58.47, "shippedItems": 44, "returnedItems": 0, "totalRevenue": 1389.66, "commission": 48.76, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/yY1SFiBNeG"}, {"seq": 75, "date": "2026-10-11", "beneficiary": "شامي", "accountCode": "SH-05", "product": "ماكينة قهوي", "email": "abdalahsyd222", "cost": 0.0, "profile": "Calixte Athanase", "password": "alasef12", "clicks": 5, "orderedItems": 3, "orderedRevenue": 0.0, "shippedItems": 11, "returnedItems": 0, "totalRevenue": 0.0, "commission": 12.6, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/prhaMFIZ9K"}, {"seq": 76, "date": "2026-10-11", "beneficiary": "شامي", "accountCode": "SH-04", "product": "قناع وجه 1%", "email": "alasuf200", "cost": 0.0, "profile": "Michel Brunhilde", "password": "alasef10", "clicks": 13, "orderedItems": 7, "orderedRevenue": 208.92, "shippedItems": 28, "returnedItems": 1, "totalRevenue": 381.21, "commission": 11.87, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/bUvpXyBVvH"}, {"seq": 77, "date": "2026-10-11", "beneficiary": "شامي", "accountCode": "SH-02", "product": "شاحن لاسلكي أبل", "email": "aboaboah43", "cost": 0.0, "profile": "Armande Odilon", "password": "qqwwee123z", "clicks": 9, "orderedItems": 9, "orderedRevenue": 180.33, "shippedItems": 15, "returnedItems": 0, "totalRevenue": 312.31, "commission": 9.12, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/yY1SFiBNeG"}, {"seq": 78, "date": "2026-10-11", "beneficiary": "ابو مخلص", "accountCode": "MK-01", "product": "منفاخ هواء", "email": "alasuf600", "cost": 0.0, "profile": "Lara Floriane", "password": "alasef10", "clicks": 18, "orderedItems": 1, "orderedRevenue": 7.14, "shippedItems": 4, "returnedItems": 0, "totalRevenue": 80.91, "commission": 3.13, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/WAbruhKUYz"}, {"seq": 79, "date": "2026-10-11", "beneficiary": "شامي", "accountCode": "SH-01", "product": "قناع وجه 3 %", "email": "josheprichad2555", "cost": 0.0, "profile": "Josefiina Eliina", "password": "..Sdf123..", "clicks": 20, "orderedItems": 0, "orderedRevenue": 0.0, "shippedItems": 0, "returnedItems": 0, "totalRevenue": 0.0, "commission": 0.0, "bonus": 0.0, "isPending": false, "adUrl": "https://t.co/hTJkFEO6dJ"}], "proxies": [{"country": "فرنسا", "isUsed": true, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.fr", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 0}, {"country": "فرنسا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.fr", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 0}, {"country": "فرنسا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.fr", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 0}, {"country": "فرنسا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.fr", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 10014}, {"country": "فرنسا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.fr", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 10015}, {"country": "فرنسا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.fr", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 10016}, {"country": "فرنسا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.fr", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 10017}, {"country": "فرنسا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.fr", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 10018}, {"country": "فرنسا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.fr", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 10019}, {"country": "فرنسا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.fr", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 10020}, {"country": "فرنسا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.fr", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 10021}, {"country": "فرنسا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.fr", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 10022}, {"country": "أمريكا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.us", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 10023}, {"country": "أمريكا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.us", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 10024}, {"country": "أمريكا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.us", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 0}, {"country": "أمريكا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.us", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 10026}, {"country": "أمريكا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.us", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 10027}, {"country": "ألمانيا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.de", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 0}, {"country": "ألمانيا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.de", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 10029}, {"country": "ألمانيا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.de", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 0}, {"country": "ألمانيا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.de", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 10031}, {"country": "ألمانيا", "isUsed": false, "portType": "ثابت", "protocol": "http", "username": "d40709dca079091ad4c6__cr.de", "password": "8d8236cd708ed7c7", "host": "gw.dataimpulse.com", "port": 0}], "workflow_steps": [{"stepNumber": 1, "title": "إنشاء حساب جيميل", "details": "تجهيز بريد إلكتروني مخصص للعمل", "stage": "1. إعداد الحسابات", "isCompleted": false, "notes": ""}, {"stepNumber": 2, "title": "إنشاء حساب جو لوجن (GoLogin)", "details": "تثبيت وضبط البرنامج", "stage": "1. إعداد الحسابات", "isCompleted": false, "notes": ""}, {"stepNumber": 3, "title": "إنشاء 3 بروفايلات للمتصفح", "details": "توزيع المهام عبر البروفايلات", "stage": "2. المتصفح والبروكسي", "isCompleted": false, "notes": ""}, {"stepNumber": 4, "title": "تفعيل البروكسي على البروفايلات", "details": "ربط البروكسي وضبط الدولة المناسبة", "stage": "2. المتصفح والبروكسي", "isCompleted": false, "notes": ""}, {"stepNumber": 5, "title": "فتح البروفايل والتأكد من الاتصال", "details": "فحص IP وجودة الاتصال", "stage": "2. المتصفح والبروكسي", "isCompleted": false, "notes": ""}, {"stepNumber": 6, "title": "تسجيل الدخول بحساب الجيميل", "details": "التحقق من الدخول وحفظ الجلسة", "stage": "2. المتصفح والبروكسي", "isCompleted": false, "notes": ""}, {"stepNumber": 7, "title": "تجهيز أسماء حساب تويتر (X) عبر الذكاء الاصطناعي", "details": "استخراج أسماء مستعارة مقنعة ومتوافقة مع النيتش", "stage": "3. إعداد حساب تويتر (X)", "isCompleted": false, "notes": ""}, {"stepNumber": 8, "title": "تسجيل الحساب بالاسم والمعرف المختار", "details": "إنشاء الحساب وضبط اسم المستخدم (@handle)", "stage": "3. إعداد حساب تويتر (X)", "isCompleted": false, "notes": ""}, {"stepNumber": 9, "title": "تصميم صورة احترافية للبروفايل والغلاف", "details": "استخدام أدوات التصميم أو الذكاء الاصطناعي", "stage": "3. إعداد حساب تويتر (X)", "isCompleted": false, "notes": ""}, {"stepNumber": 10, "title": "تعديل البايو (Bio) في البروفايل", "details": "كتابة سيرة ذاتية جذابة ومقنعة للمتابعين", "stage": "3. إعداد حساب تويتر (X)", "isCompleted": false, "notes": ""}, {"stepNumber": 11, "title": "جلب وتعيين الموقع الجغرافي من خرائط جوجل", "details": "9 Rue des Archives, 75004 Paris, France", "stage": "3. إعداد حساب تويتر (X)", "isCompleted": false, "notes": ""}, {"stepNumber": 12, "title": "الانتقال إلى موقع أمازون أفلييت", "details": "https://affiliate-program.amazon.com/", "stage": "4. إدارة منتجات أمازون", "isCompleted": false, "notes": ""}, {"stepNumber": 13, "title": "جلب ID / معرف السلعة (ASIN)", "details": "اختيار منتج رابح ونسخ المعرف", "stage": "4. إدارة منتجات أمازون", "isCompleted": false, "notes": ""}, {"stepNumber": 14, "title": "تحديد وتعبئة نوع المحتوى المطلوب", "details": "product review", "stage": "4. إدارة منتجات أمازون", "isCompleted": false, "notes": ""}, {"stepNumber": 15, "title": "اختيار نوع الموقع / النشاط الأساسي", "details": "مدونة (Blog)", "stage": "4. إدارة منتجات أمازون", "isCompleted": false, "notes": ""}, {"stepNumber": 16, "title": "تأكيد نوع النشاط الثانوي", "details": "مدونة (Blog)", "stage": "4. إدارة منتجات أمازون", "isCompleted": false, "notes": ""}, {"stepNumber": 17, "title": "إنشاء نص تغريدة تسويقية بالذكاء الاصطناعي", "details": "صياغة نص جذاب مع رابط المنتج الأساسي", "stage": "5. النشر والترويج", "isCompleted": false, "notes": ""}, {"stepNumber": 18, "title": "جلب رابط التتبع (Affiliate Link) من أمازون", "details": "مع استبدال الرابط الأساسي برابط التتبع", "stage": "5. النشر والترويج", "isCompleted": false, "notes": ""}, {"stepNumber": 19, "title": "رفع وإرفاق صور عالية الجودة للمنتج", "details": "تنسيق الصور ضمن التغريدة لجذب الانتباه", "stage": "5. النشر والترويج", "isCompleted": false, "notes": ""}, {"stepNumber": 20, "title": "نشر التغريدة وحفظ رابط التغريدة المباشر", "details": "[link removed]", "stage": "5. النشر والترويج", "isCompleted": false, "notes": ""}, {"stepNumber": 21, "title": "إطلاق الترويج والتسويق للحملة", "details": "بدء الحملة الإعلانية ومتابعة التفاعل", "stage": "5. النشر والترويج", "isCompleted": false, "notes": ""}], "bank_accounts": [{"iban": "LT343500010019212211", "beneficiaryName": "Nassima Kadeche", "bic": "EVIULT2VXXX", "bankName": "Paysera LT, UAB", "bankAddress": "Pilaitės pr. 16, Vilnius", "postalAndCountry": "LT-04352, Lithuania", "status": "تم الربط بنجاح", "verificationDoc": "", "amazonEmail": "josheprichad2555", "amazonAccountName": "Josefiina Eliina"}, {"iban": "LT523500010019212178", "beneficiaryName": "Nassima Kadeche", "bic": "EVIULT2VXXX", "bankName": "Paysera LT, UAB", "bankAddress": "Pilaitės pr. 16, Vilnius", "postalAndCountry": "LT-04352, Lithuania", "status": "تم الربط بنجاح", "verificationDoc": "", "amazonEmail": "aboaboah43", "amazonAccountName": "Armande Odilon"}, {"iban": "LT923500010019212234", "beneficiaryName": "Nassima Kadeche", "bic": "EVIULT2VXXX", "bankName": "Paysera LT, UAB", "bankAddress": "Pilaitės pr. 16, Vilnius", "postalAndCountry": "LT-04352, Lithuania", "status": "تم الربط بنجاح", "verificationDoc": "", "amazonEmail": "alasuf700", "amazonAccountName": "Munroe Sharleen"}, {"iban": "LT653500010019212235", "beneficiaryName": "Nassima Kadeche", "bic": "EVIULT2VXXX", "bankName": "Paysera LT, UAB", "bankAddress": "Pilaitės pr. 16, Vilnius", "postalAndCountry": "LT-04352, Lithuania", "status": "تم الربط بنجاح", "verificationDoc": "", "amazonEmail": "alasuf200", "amazonAccountName": "Michel Brunhilde"}, {"iban": "LT863500010019212245", "beneficiaryName": "Nassima Kadeche", "bic": "EVIULT2VXXX", "bankName": "Paysera LT, UAB", "bankAddress": "Pilaitės pr. 16, Vilnius", "postalAndCountry": "LT-04352, Lithuania", "status": "تم الربط بنجاح", "verificationDoc": "", "amazonEmail": "alasuf600", "amazonAccountName": "Lara Floriane"}, {"iban": "LT593500010019212246", "beneficiaryName": "Nassima Kadeche", "bic": "EVIULT2VXXX", "bankName": "Paysera LT, UAB", "bankAddress": "Pilaitės pr. 16, Vilnius", "postalAndCountry": "LT-04352, Lithuania", "status": "تم الربط بنجاح", "verificationDoc": "", "amazonEmail": "abwasadsyd123", "amazonAccountName": "Fredy Christian"}, {"iban": "LT323500010019212247", "beneficiaryName": "Nassima Kadeche", "bic": "EVIULT2VXXX", "bankName": "Paysera LT, UAB", "bankAddress": "Pilaitės pr. 16, Vilnius", "postalAndCountry": "LT-04352, Lithuania", "status": "تم الربط بنجاح", "verificationDoc": "", "amazonEmail": "abdalahsyd222", "amazonAccountName": "Calixte Athanase"}, {"iban": "LT053500010019212248", "beneficiaryName": "Nassima Kadeche", "bic": "EVIULT2VXXX", "bankName": "Paysera LT, UAB", "bankAddress": "Pilaitės pr. 16, Vilnius", "postalAndCountry": "LT-04352, Lithuania", "status": "جاهز للربط", "verificationDoc": "", "amazonEmail": "", "amazonAccountName": ""}, {"iban": "LT753500010019212249", "beneficiaryName": "Nassima Kadeche", "bic": "EVIULT2VXXX", "bankName": "Paysera LT, UAB", "bankAddress": "Pilaitės pr. 16, Vilnius", "postalAndCountry": "LT-04352, Lithuania", "status": "جاهز للربط", "verificationDoc": "", "amazonEmail": "", "amazonAccountName": ""}, {"iban": "LT483500010019212250", "beneficiaryName": "Nassima Kadeche", "bic": "EVIULT2VXXX", "bankName": "Paysera LT, UAB", "bankAddress": "Pilaitės pr. 16, Vilnius", "postalAndCountry": "LT-04352, Lithuania", "status": "جاهز للربط", "verificationDoc": "", "amazonEmail": "", "amazonAccountName": ""}, {"iban": "LT913500010019212252", "beneficiaryName": "Nassima Kadeche", "bic": "EVIULT2VXXX", "bankName": "Paysera LT, UAB", "bankAddress": "Pilaitės pr. 16, Vilnius", "postalAndCountry": "LT-04352, Lithuania", "status": "جاهز للربط", "verificationDoc": "", "amazonEmail": "", "amazonAccountName": ""}, {"iban": "LT643500010019212253", "beneficiaryName": "Nassima Kadeche", "bic": "EVIULT2VXXX", "bankName": "Paysera LT, UAB", "bankAddress": "Pilaitės pr. 16, Vilnius", "postalAndCountry": "LT-04352, Lithuania", "status": "جاهز للربط", "verificationDoc": "", "amazonEmail": "", "amazonAccountName": ""}, {"iban": "LT103500010019212255", "beneficiaryName": "Nassima Kadeche", "bic": "EVIULT2VXXX", "bankName": "Paysera LT, UAB", "bankAddress": "Pilaitės pr. 16, Vilnius", "postalAndCountry": "LT-04352, Lithuania", "status": "جاهز للربط", "verificationDoc": "", "amazonEmail": "", "amazonAccountName": ""}, {"iban": "LT803500010019212256", "beneficiaryName": "Nassima Kadeche", "bic": "EVIULT2VXXX", "bankName": "Paysera LT, UAB", "bankAddress": "Pilaitės pr. 16, Vilnius", "postalAndCountry": "LT-04352, Lithuania", "status": "جاهز للربط", "verificationDoc": "", "amazonEmail": "", "amazonAccountName": ""}, {"iban": "LT533500010019212257", "beneficiaryName": "Nassima Kadeche", "bic": "EVIULT2VXXX", "bankName": "Paysera LT, UAB", "bankAddress": "Pilaitės pr. 16, Vilnius", "postalAndCountry": "LT-04352, Lithuania", "status": "جاهز للربط", "verificationDoc": "", "amazonEmail": "", "amazonAccountName": ""}, {"iban": "LT263500010019212258", "beneficiaryName": "Nassima Kadeche", "bic": "EVIULT2VXXX", "bankName": "Paysera LT, UAB", "bankAddress": "Pilaitės pr. 16, Vilnius", "postalAndCountry": "LT-04352, Lithuania", "status": "جاهز للربط", "verificationDoc": "", "amazonEmail": "", "amazonAccountName": ""}, {"iban": "LT963500010019212259", "beneficiaryName": "Nassima Kadeche", "bic": "EVIULT2VXXX", "bankName": "Paysera LT, UAB", "bankAddress": "Pilaitės pr. 16, Vilnius", "postalAndCountry": "LT-04352, Lithuania", "status": "جاهز للربط", "verificationDoc": "", "amazonEmail": "", "amazonAccountName": ""}], "platforms": [{"category": "منصة اعلانية", "name": "clickadu", "usernameOrEmail": "shamiwoork", "password": "..S", "notes": "", "url": "https://adv.clickadu.com/dashboard"}, {"category": "منصة اعلانية", "name": "adsterra", "usernameOrEmail": "shamiwoork", "password": "..S", "notes": "تم شحن 100$", "url": "https://beta.partners.adsterra.com/"}, {"category": "منصة اعلانية", "name": "richads", "usernameOrEmail": "shamiwoork", "password": "..S", "notes": "", "url": "https://my.richads.com/campaigns"}, {"category": "منصة اعلانية", "name": "rollerads", "usernameOrEmail": "shamiwoork", "password": "..S", "notes": "", "url": "https://my.rollerads.com/"}, {"category": "PROXY", "name": "dataimpulse", "usernameOrEmail": "kloklop6", "password": "", "notes": "تم الشحن  50$", "url": "https://app.dataimpulse.com/"}, {"category": "منصة إعلانية (PropellerAds)", "name": "بلوبلر ادس", "usernameOrEmail": "shamiwoork@gmail.com", "password": "..S", "notes": "التوثيق: رقم ن ج", "url": "https://partners.propellerads.com/"}], "promo_times": [{"windowName": "🏆 النافذة الذهبية الكبرى (ذروة الشراء)", "syriaTime": "01:00 ليلاً حتى 06:00 صباحاً", "usTime": "06:00 مساءً حتى 11:00 ليلاً"}, {"windowName": "☕ نافذة استراحة الغداء (شراء سريع)", "syriaTime": "07:00 مساءً حتى 09:00 مساءً", "usTime": "12:00 ظهراً حتى 02:00 ظهراً"}, {"windowName": "🌉 امتداد الساحل الغربي (كاليفورنيا)", "syriaTime": "06:00 صباحاً حتى 08:30 صباحاً", "usTime": "08:00 مساءً حتى 10:30 ليلاً PDT"}, {"windowName": "💤 الساعات الميتة (احذر تشغيل الإعلانات)", "syriaTime": "08:30 صباحاً حتى 02:00 ظهراً", "usTime": "01:30 ليلاً حتى 07:00 صباحاً"}]};
+let db = JSON.parse(localStorage.getItem('amazon_erp_db_v1') || 'null') || JSON.parse(JSON.stringify(SEED_DATA));
+let currentTab = 0;
+let campBenefFilter = 'الكل';
+let campSearch = '';
+let campDailyMode = false;
+
+function saveDb() {
+  localStorage.setItem('amazon_erp_db_v1', JSON.stringify(db));
+  renderAll();
+}
+
+function resetFactory() {
+  if (confirm('هل ترغب في استعادة البيانات الأصلية المستخرجة من ملف الإكسل؟')) {
+    db = JSON.parse(JSON.stringify(SEED_DATA));
+    saveDb();
+  }
+}
+
+function toggleTheme() {
+  document.body.classList.toggle('light');
+}
+
+function copyText(txt, label) {
+  if (!txt) return;
+  navigator.clipboard.writeText(txt);
+  const t = document.getElementById('toast');
+  t.textContent = 'تم نسخ ' + (label || '') + ': ' + txt + ' ✅';
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 2200);
+}
+
+function badgeHtml(txt) {
+  if (!txt) return '<span class="badge b-blue">غير محدد</span>';
+  let cls = 'b-blue';
+  if (/نشط|يعمل|كافٍ|رابحة|كرر|بنجاح|ممتازة|نعم|متاح/.test(txt)) cls = 'b-green';
+  else if (/محظور|مقفول|إيقاف|منتهي|خسارة/.test(txt)) cls = 'b-red';
+  else if (/مراجعة|منخفض|تعديل|انتظار|جاهز/.test(txt)) cls = 'b-amber';
+  return `<span class="badge ${cls}">${txt}</span>`;
+}
+
+function calcCampaign(c) {
+  const cr = c.clicks > 0 ? (c.orderedItems / c.clicks) : 0;
+  const earn = c.isPending ? 0 : ((c.commission || 0) + (c.bonus || 0));
+  const net = c.isPending ? 0 : (earn - (c.cost || 0));
+  const roi = (!c.isPending && c.cost > 0) ? (net / c.cost) : null;
+  let rec = '';
+  if (c.isPending) {
+    rec = '⏳ بانتظار النتائج (قيد التشغيل)';
+  } else {
+    const crStr = cr > 0 ? `CR: ${(cr*100).toFixed(1)}% | ` : '';
+    if (net > 0) {
+      rec = crStr + ((c.cost === 0 || (roi !== null && roi >= 0.5)) ? '🚀 كرر الحملة وضاعف الميزانية' : '✅ رابحة - استمر بتكرارها');
+    } else if (net === 0) {
+      rec = crStr + (c.cost === 0 ? '⚪ حملة مجانية / تجريبية' : '⚖️ تعادل - راقب قبل التكرار');
+    } else {
+      const r = roi !== null ? roi : -1;
+      rec = crStr + (r <= -0.8 ? '🛑 إيقاف الحملة فوراً (خسارة مرتفعة)' : (r <= -0.4 ? '🔧 تعديل الحملة (الاستهداف/الإعلان)' : '⚠️ تعديل طفيف لتحسين العائد'));
+    }
+  }
+  return { cr, earn, net, roi, rec };
+}
+
+function getTotals() {
+  const cap = db.beneficiaries.reduce((s, b) => s + (+b.baseCapital || 0), 0);
+  let spend = 0, earn = 0, net = 0, sales = 0, shipped = 0;
+  db.campaigns.forEach(c => {
+    const m = calcCampaign(c);
+    spend += (+c.cost || 0);
+    earn += m.earn;
+    net += m.net;
+    sales += (+c.totalRevenue || 0);
+    shipped += (+c.shippedItems || 0);
+  });
+  const roi = spend > 0 ? net / spend : 0;
+  return { cap, spend, liq: cap - spend, earn, net, roi, sales, shipped };
+}
+
+const NAV_ITEMS = [
+  { title: 'التقرير التنفيذي الشامل', sub: 'نظرة استراتيجية شاملة للمنظومة', badge: () => '$' + getTotals().net.toFixed(0) },
+  { title: 'الأرباح والجرد اليومي', sub: 'تسجيل الحملات وحساب العائد لحظياً', badge: () => db.campaigns.length },
+  { title: 'دليل المنتجات والمستفيدين', sub: 'إدارة رؤوس الأموال والتعبئة التلقائية', badge: () => db.products_catalog.length },
+  { title: 'حسابات أمازون والأرشيف', sub: 'المتاجر، التغريدات، وروابط الأفلييت', badge: () => db.amazon_accounts.filter(a=>a.status==='نشط').length + '/' + db.amazon_accounts.length },
+  { title: 'حسابات البريد (EMAIL)', sub: 'متابعة الجيميل، التوثيق، والأرقام', badge: () => db.emails.length },
+  { title: 'حسابات جو لوجن (GoLogin)', sub: 'إدارة وعزل البروفايلات الرقمية', badge: () => db.gologin.length },
+  { title: 'إدارة البروكسي (Proxies)', sub: 'DataImpulse بروكسيات ثابتة', badge: () => db.proxies.filter(p=>p.isUsed).length + '/' + db.proxies.length },
+  { title: 'الحسابات البنكية (Paysera)', sub: 'أرقام الآيبان IBAN وربطها بأمازون', badge: () => db.bank_accounts.filter(b=>b.status.includes('تم الربط')).length + '/' + db.bank_accounts.length },
+  { title: 'المنصات وأوقات الترويج', sub: 'شبكات الإعلانات، بلوبلر، وذروة أمريكا', badge: () => db.platforms.length },
+  { title: 'دليل وخطوات العمل', sub: 'خطة التشغيل القياسية 21 خطوة', badge: () => db.workflow_steps.filter(s=>s.isCompleted).length + '/' + db.workflow_steps.length }
+];
+
+function renderAll() {
+  const t = getTotals();
+  document.getElementById('topPills').innerHTML = `
+    <div class="pill" style="color:var(--primary)">رأس المال: $${t.cap.toFixed(0)}</div>
+    <div class="pill" style="color:var(--amber)">المصروف: $${t.spend.toFixed(2)}</div>
+    <div class="pill" style="color:var(--emerald)">الأرباح: $${t.earn.toFixed(2)}</div>
+    <div class="pill" style="color:#34d399">الصافي: $${t.net.toFixed(2)}</div>
+    <div class="pill" style="color:var(--purple)">العائد ROI: ${(t.roi*100).toFixed(1)}%</div>
+  `;
+
+  document.getElementById('navList').innerHTML = NAV_ITEMS.map((item, i) => `
+    <div class="nav-item ${currentTab===i?'active':''}" onclick="selectTab(${i})">
+      <div>
+        <div class="nav-item-title">${item.title}</div>
+        <div class="nav-item-sub">${item.sub}</div>
+      </div>
+      <span class="nav-badge">${item.badge()}</span>
+    </div>
+  `).join('');
+
+  document.getElementById('screenTitle').textContent = NAV_ITEMS[currentTab].title;
+  document.getElementById('screenSub').textContent = NAV_ITEMS[currentTab].sub;
+
+  const box = document.getElementById('mainContent');
+  if (currentTab === 0) box.innerHTML = renderDashboard(t);
+  else if (currentTab === 1) box.innerHTML = renderCampaigns();
+  else if (currentTab === 2) box.innerHTML = renderBeneficiaries();
+  else if (currentTab === 3) box.innerHTML = renderAmazon();
+  else if (currentTab === 4) box.innerHTML = renderEmails();
+  else if (currentTab === 5) box.innerHTML = renderGoLogin();
+  else if (currentTab === 6) box.innerHTML = renderProxies();
+  else if (currentTab === 7) box.innerHTML = renderBanks();
+  else if (currentTab === 8) box.innerHTML = renderPlatforms();
+  else if (currentTab === 9) box.innerHTML = renderWorkflow();
+}
+
+function selectTab(i) { currentTab = i; renderAll(); }
+
+function renderDashboard(t) {
+  const benRows = db.beneficiaries.map(b => {
+    const camps = db.campaigns.filter(c => c.beneficiary.trim() === b.name.trim());
+    let sp = 0, ea = 0, ne = 0;
+    camps.forEach(c => { const m = calcCampaign(c); sp += c.cost; ea += m.earn; ne += m.net; });
+    const rem = b.baseCapital - sp;
+    const roi = sp > 0 ? (ne / sp * 100).toFixed(1) + '%' : '-';
+    const st = rem <= 0 ? '⚠️ رصيد منتهي - يلزم الشحن' : (rem <= 15 ? '⚠️ رصيد منخفض' : '✅ رصيد كافٍ');
+    return `<tr>
+      <td>${b.id}</td><td><b>${b.name} (${b.accountCodeRange})</b></td>
+      <td>$${b.baseCapital.toFixed(2)}</td><td>$${sp.toFixed(3)}</td>
+      <td style="color:${rem<0?'var(--rose)':'var(--emerald)'};font-weight:700">$${rem.toFixed(3)}</td>
+      <td>${badgeHtml(st)}</td><td>${camps.length} حملة</td>
+      <td>$${ea.toFixed(2)}</td><td style="color:var(--emerald);font-weight:700">$${ne.toFixed(3)}</td>
+      <td><b>${roi}</b></td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div class="kpi-grid">
+      <div class="card"><div class="kpi-title">💵 رأس المال الأساسي المكتتب</div><div class="kpi-val" style="color:var(--primary)">$${t.cap.toFixed(2)}</div><div class="kpi-sub">المصروف: $${t.spend.toFixed(2)} | السيولة: $${t.liq.toFixed(2)}</div></div>
+      <div class="card"><div class="kpi-title">💰 إجمالي الأرباح المحققة</div><div class="kpi-val" style="color:var(--emerald)">$${t.earn.toFixed(2)}</div><div class="kpi-sub">إجمالي المبيعات: $${t.sales.toFixed(2)} (${t.shipped} مشحون)</div></div>
+      <div class="card"><div class="kpi-title">📈 إجمالي صافي الأرباح</div><div class="kpi-val" style="color:#34d399">$${t.net.toFixed(2)}</div><div class="kpi-sub">بعد خصم تكاليف ${db.campaigns.length} حملة إعلانية</div></div>
+      <div class="card"><div class="kpi-title">📊 معدل العائد الاستثماري (ROI)</div><div class="kpi-val" style="color:var(--purple)">${(t.roi*100).toFixed(1)}%</div><div class="kpi-sub">مضاعف الربح: ${t.roi.toFixed(2)}x من التكلفة</div></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-bottom:12px;">👥 أرصدة المستفيدين وتتبع حركة رؤوس الأموال والأرباح</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>م</th><th>المستفيد</th><th>رأس المال الأساسي</th><th>المصروف</th><th>الرصيد المتبقي</th><th>حالة الرصيد</th><th>عدد الحملات</th><th>إجمالي الأرباح</th><th>صافي الربح</th><th>العائد ROI</th></tr></thead>
+          <tbody>${benRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderCampaigns() {
+  const filtered = db.campaigns.filter(c => {
+    if (campBenefFilter !== 'الكل' && c.beneficiary.trim() !== campBenefFilter) return false;
+    if (campSearch) {
+      const q = campSearch.toLowerCase();
+      return c.product.toLowerCase().includes(q) || c.beneficiary.toLowerCase().includes(q) || c.date.includes(q) || c.accountCode.toLowerCase().includes(q);
+    }
+    return true;
+  });
+
+  const rows = filtered.map((c, idx) => {
+    const m = calcCampaign(c);
+    return `<tr>
+      <td>${c.seq}</td><td class="mono">${c.date}</td><td><b>${c.beneficiary}</b></td>
+      <td>${badgeHtml(c.accountCode)}</td><td><b>${c.product}</b></td><td>${c.profile}</td>
+      <td class="mono" onclick="copyText('${c.email}','الإيميل')">${c.email}</td>
+      <td>$${(+c.cost).toFixed(3)}</td><td>${c.clicks}</td><td>${c.orderedItems}</td>
+      <td>${(m.cr*100).toFixed(1)}%</td><td>${c.shippedItems}</td>
+      <td>$${(+c.totalRevenue).toFixed(2)}</td><td>$${(+c.commission).toFixed(2)}</td><td>$${(+c.bonus).toFixed(2)}</td>
+      <td><b>$${m.earn.toFixed(2)}</b></td>
+      <td style="color:${m.net>=0?'var(--emerald)':'var(--rose)'};font-weight:700">$${m.net.toFixed(3)}</td>
+      <td><b>${m.roi===null?'-':(m.roi*100).toFixed(1)+'%'}</b></td>
+      <td>${badgeHtml(m.rec)}</td>
+      <td><button class="btn" onclick="copyText('${c.adUrl}','رابط الإعلان')">🔗</button></td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div class="toolbar">
+      <input type="text" placeholder="بحث بالمنتج، التاريخ، الحساب..." value="${campSearch}" oninput="campSearch=this.value;renderAll()" style="width:250px;">
+      <select onchange="campBenefFilter=this.value;renderAll()">
+        ${['الكل','شامي','ابو مخلص','ابو خليل','جودت'].map(b=>`<option value="${b}" ${campBenefFilter===b?'selected':''}>المستفيد: ${b}</option>`).join('')}
+      </select>
+      <button class="btn btn-primary" onclick="openCampaignModal()">➕ تسجيل حملة يومية جديدة</button>
+    </div>
+    <div class="card table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>التاريخ</th><th>المستفيد</th><th>الحساب</th><th>المنتج</th><th>البروفايل</th><th>الإيميل</th><th>التكلفة</th><th>النقرات</th><th>الطلبات</th><th>CR%</th><th>المشحون</th><th>المبيعات</th><th>العمولة</th><th>المكافأة</th><th>الأرباح</th><th>الصافي</th><th>ROI%</th><th>التوصية الذكية</th><th>الرابط</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderBeneficiaries() {
+  const rows = db.products_catalog.map(p => `<tr>
+    <td>${p.id}</td><td><b>${p.product}</b></td><td>${p.beneficiary}</td><td>${badgeHtml(p.accountCode)}</td>
+    <td>${p.profile}</td><td>$${p.capital}</td>
+    <td class="mono" onclick="copyText('${p.email}','الإيميل')">${p.email}</td>
+    <td class="mono" onclick="copyText('${p.password}','الباسوورد')">${p.password}</td>
+    <td class="mono" onclick="copyText('${p.adUrl}','رابط الإعلان')">${p.adUrl}</td>
+  </tr>`).join('');
+  return `<div class="card"><h3 style="margin-bottom:12px;">📦 دليل الحملات والمنتجات المعتمدة (${db.products_catalog.length} منتج)</h3><div class="table-wrap"><table><thead><tr><th>م</th><th>المنتج</th><th>المستفيد</th><th>رمز الحساب</th><th>البروفايل</th><th>رأس المال</th><th>الإيميل</th><th>الباسوورد</th><th>رابط الإعلان</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+
+function renderAmazon() {
+  const rows = db.amazon_accounts.map(a => `<tr>
+    <td><b>${a.beneficiary}</b></td><td>${badgeHtml(a.code)}</td><td><b>${a.name}</b></td>
+    <td class="mono" onclick="copyText('${a.storeId}','StoreID')">${a.storeId}</td>
+    <td>${a.country}</td><td>${badgeHtml(a.status)}</td><td>${a.product1}</td>
+    <td class="mono" onclick="copyText('${a.tweetUrl1}','تغريدة 1')">${a.tweetUrl1 || '-'}</td>
+    <td class="mono" onclick="copyText('${a.affiliateUrl1}','أفلييت 1')">${a.affiliateUrl1 || '-'}</td>
+    <td class="mono" onclick="copyText('${a.adsterraUrl}','ووركر')">${a.adsterraUrl || '-'}</td>
+    <td class="mono" onclick="copyText('${a.email}','الإيميل')">${a.email}</td>
+    <td class="mono" onclick="copyText('${a.password}','الباسوورد')">${a.password}</td>
+    <td>${a.notes}</td>
+  </tr>`).join('');
+  return `<div class="card"><h3 style="margin-bottom:12px;">📦 حسابات أمازون والترويج (${db.amazon_accounts.length} حسابات)</h3><div class="table-wrap"><table><thead><tr><th>المستفيد</th><th>الرمز</th><th>اسم الحساب</th><th>StoreID</th><th>الدولة</th><th>الحالة</th><th>الصنف 1</th><th>تغريدة 1</th><th>أفلييت 1</th><th>ووركر Adsterra</th><th>الإيميل</th><th>الباسوورد</th><th>ملاحظات</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+
+function renderEmails() {
+  const rows = db.emails.map(e => `<tr>
+    <td class="mono" onclick="copyText('${e.email}','الإيميل')"><b>${e.email}</b></td>
+    <td class="mono" onclick="copyText('${e.password}','الباسوورد')">${e.password}</td>
+    <td>${e.gologin || '-'}</td><td>${e.recovery || '-'}</td>
+    <td>${badgeHtml(e.status)}</td><td>${e.country || '-'}</td>
+    <td class="mono" onclick="copyText('${e.phone}','الرقم')">${e.phone || '-'}</td>
+    <td>${e.notes || ''}</td>
+  </tr>`).join('');
+  return `<div class="card"><h3 style="margin-bottom:12px;">📧 حسابات البريد الإلكتروني (${db.emails.length} إيميل)</h3><div class="table-wrap"><table><thead><tr><th>الإيميل (انقر للنسخ)</th><th>الباسوورد</th><th>GoLogin</th><th>الاسترداد</th><th>الحالة</th><th>الدولة</th><th>الرقم</th><th>الملاحظات</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+
+function renderGoLogin() {
+  const rows = db.gologin.map(g => `<tr>
+    <td>${g.accountType}</td><td><b>${g.platform}</b></td>
+    <td class="mono" onclick="copyText('${g.email}','الإيميل')">${g.email}</td>
+    <td class="mono" onclick="copyText('${g.password}','الباسوورد')">${g.password}</td>
+    <td>${badgeHtml(g.profile1)}</td><td>${badgeHtml(g.profile2)}</td><td>${badgeHtml(g.profile3)}</td>
+    <td>${g.country}</td><td>${g.notes}</td>
+  </tr>`).join('');
+  return `<div class="card"><h3 style="margin-bottom:12px;">💻 حسابات وبروفايلات GoLogin</h3><div class="table-wrap"><table><thead><tr><th>الحساب</th><th>المنصة</th><th>الإيميل</th><th>الباسوورد</th><th>Profile 1</th><th>Profile 2</th><th>Profile 3</th><th>الدولة</th><th>ملاحظات</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+
+function renderProxies() {
+  const rows = db.proxies.map((p, i) => {
+    const full = `${p.username}:${p.password}@${p.host}:${p.port}`;
+    return `<tr>
+      <td><b>${p.country}</b></td>
+      <td onclick="db.proxies[${i}].isUsed=!db.proxies[${i}].isUsed;saveDb()" style="cursor:pointer">${badgeHtml(p.isUsed ? 'نعم (مستخدم)' : 'متاح للاستخدام')}</td>
+      <td>${p.portType}</td><td>${p.protocol.toUpperCase()}</td>
+      <td class="mono" onclick="copyText('${full}','البروكسي')">${full}</td>
+      <td><b>${p.port}</b></td>
+      <td><button class="btn" onclick="copyText('${full}','البروكسي')">نسخ البروكسي</button></td>
+    </tr>`;
+  }).join('');
+  return `<div class="card"><h3 style="margin-bottom:12px;">🌐 البروكسيات الثابتة DataImpulse (${db.proxies.length} بروكسي)</h3><div class="table-wrap"><table><thead><tr><th>الدولة</th><th>الحالة (انقر للتبديل)</th><th>النوع</th><th>البروتوكول</th><th>الرابط الكامل للنسخ</th><th>Port</th><th>نسخ</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+
+function renderBanks() {
+  const rows = db.bank_accounts.map(b => `<tr>
+    <td class="mono" onclick="copyText('${b.iban}','IBAN')"><b>${b.iban}</b></td>
+    <td>${b.beneficiaryName}</td><td class="mono" onclick="copyText('${b.bic}','BIC')">${b.bic}</td>
+    <td>${b.bankName}</td><td>${badgeHtml(b.status)}</td>
+    <td class="mono">${b.amazonEmail || '-'}</td><td><b>${b.amazonAccountName || '-'}</b></td>
+  </tr>`).join('');
+  return `<div class="card"><h3 style="margin-bottom:12px;">🏛️ الحسابات البنكية Paysera LT (${db.bank_accounts.length} حساب آيبان)</h3><div class="table-wrap"><table><thead><tr><th>رقم الآيبان (IBAN)</th><th>المستفيد</th><th>BIC</th><th>البنك</th><th>حالة الربط</th><th>إيميل أمازون</th><th>اسم حساب أمازون</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+
+function renderPlatforms() {
+  const rows = db.platforms.map(p => `<tr>
+    <td>${badgeHtml(p.category)}</td><td><b>${p.name.toUpperCase()}</b></td>
+    <td class="mono" onclick="copyText('${p.usernameOrEmail}','المستخدم')">${p.usernameOrEmail}</td>
+    <td class="mono" onclick="copyText('${p.password}','الباسوورد')">${p.password || '-'}</td>
+    <td>${badgeHtml(p.notes || 'جاهز')}</td>
+    <td class="mono" onclick="copyText('${p.url}','الرابط')">${p.url}</td>
+  </tr>`).join('');
+  const times = db.promo_times.map(w => `<div class="card" style="margin-bottom:0">
+    <div style="font-weight:800;font-size:15px;margin-bottom:8px;color:var(--amber)">${w.windowName}</div>
+    <div style="font-size:13px;margin-bottom:4px;">🕒 توقيت سوريا (دمشق): <b>${w.syriaTime}</b></div>
+    <div style="font-size:13px;">🌎 التوقيت المحلي في أمريكا: <b>${w.usTime}</b></div>
+  </div>`).join('');
+  return `
+    <div class="card"><h3 style="margin-bottom:12px;">🚀 المنصات الإعلانية وحسابات بلوبلر أدس</h3><div class="table-wrap"><table><thead><tr><th>التصنيف</th><th>المنصة</th><th>المستخدم / الإيميل</th><th>الباسوورد</th><th>الملاحظات</th><th>الرابط</th></tr></thead><tbody>${rows}</tbody></table></div></div>
+    <div class="kpi-grid" style="grid-template-columns:repeat(2,1fr)">${times}</div>
+  `;
+}
+
+function renderWorkflow() {
+  const rows = db.workflow_steps.map((s, i) => `<tr>
+    <td><input type="checkbox" ${s.isCompleted?'checked':''} onchange="db.workflow_steps[${i}].isCompleted=this.checked;saveDb()"></td>
+    <td><b>${s.stepNumber}</b></td>
+    <td style="${s.isCompleted?'text-decoration:line-through;color:var(--text-muted)':''}"><b>${s.title}</b></td>
+    <td>${badgeHtml(s.stage)}</td>
+    <td class="mono" onclick="copyText('${s.details}','التفاصيل')">${s.details}</td>
+  </tr>`).join('');
+  return `<div class="card"><h3 style="margin-bottom:12px;">📋 دليل وخطوات العمل القياسية (21 خطوة)</h3><div class="table-wrap"><table><thead><tr><th>إنجاز</th><th>#</th><th>خطوة العمل</th><th>المرحلة</th><th>التفاصيل والروابط (انقر للنسخ)</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+
+function openCampaignModal() {
+  const sel = document.getElementById('m_product');
+  sel.innerHTML = db.products_catalog.map(p => `<option value="${p.product}">${p.product} (${p.beneficiary} - ${p.accountCode})</option>`).join('');
+  document.getElementById('m_date').value = new Date().toISOString().split('T')[0];
+  autoFillProduct();
+  document.getElementById('campaignModal').style.display = 'flex';
+}
+
+function closeCampaignModal() { document.getElementById('campaignModal').style.display = 'none'; }
+
+function autoFillProduct() {
+  const prod = document.getElementById('m_product').value;
+  const item = db.products_catalog.find(p => p.product === prod);
+  if (item) {
+    document.getElementById('m_beneficiary').value = item.beneficiary;
+    document.getElementById('m_code').value = item.accountCode;
+    document.getElementById('m_profile').value = item.profile;
+    document.getElementById('m_email').value = item.email.split('@')[0];
+    document.getElementById('m_adurl').value = item.adUrl;
+  }
+}
+
+function saveNewCampaign() {
+  db.campaigns.unshift({
+    seq: db.campaigns.length + 1,
+    date: document.getElementById('m_date').value,
+    beneficiary: document.getElementById('m_beneficiary').value,
+    accountCode: document.getElementById('m_code').value,
+    product: document.getElementById('m_product').value,
+    email: document.getElementById('m_email').value,
+    cost: parseFloat(document.getElementById('m_cost').value) || 0,
+    profile: document.getElementById('m_profile').value,
+    password: '',
+    clicks: parseInt(document.getElementById('m_clicks').value) || 0,
+    orderedItems: parseInt(document.getElementById('m_orders').value) || 0,
+    orderedRevenue: 0,
+    shippedItems: parseInt(document.getElementById('m_shipped').value) || 0,
+    returnedItems: 0,
+    totalRevenue: parseFloat(document.getElementById('m_rev').value) || 0,
+    commission: parseFloat(document.getElementById('m_comm').value) || 0,
+    bonus: parseFloat(document.getElementById('m_bonus').value) || 0,
+    isPending: false,
+    adUrl: document.getElementById('m_adurl').value
+  });
+  closeCampaignModal();
+  saveDb();
+}
+
+function exportCampaignsCsv() {
+  const headers = ['التسلسل','التاريخ','المستفيد','رمز الحساب','المنتج','الإيميل','التكلفة','النقرات','الطلبات','المشحون','المبيعات','العمولة','المكافأة','الأرباح','صافي الربح'];
+  const rows = db.campaigns.map(c => {
+    const m = calcCampaign(c);
+    return [c.seq, c.date, c.beneficiary, c.accountCode, c.product, c.email, c.cost, c.clicks, c.orderedItems, c.shippedItems, c.totalRevenue, c.commission, c.bonus, m.earn.toFixed(2), m.net.toFixed(3)].join(',');
+  });
+  const csv = '\uFEFF' + headers.join(',') + '\n' + rows.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'amazon_campaigns_export.csv';
+  a.click();
+}
+
+renderAll();
+</script>
+</body>
+</html>
