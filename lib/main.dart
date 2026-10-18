@@ -3345,23 +3345,30 @@ Future<void> showCampaignImportDialog(
     final product = index == null ? null : catalog[index];
     final productName = product?.product ?? row.campaignName;
     final code = product?.accountCode ?? row.accountCode;
-    final duplicate = c.campaigns.any(
-      (e) =>
-          e.date == row.date &&
-          e.accountCode == code &&
-          e.product == productName,
-    );
     entries.add(
       _CampaignImportEntry(
         row: row,
         catalog: product,
         productName: productName,
         accountCode: code,
-        isDuplicate: duplicate,
-        selected: !duplicate && product != null,
+        isDuplicate: false,
+        selected: product != null,
       ),
     );
   }
+
+  // "تاريخ البدء" في التقرير هو تاريخ إنشاء الحملة وليس تاريخ الإحصائيات،
+  // لذلك يختار المستخدم تاريخ الإحصائيات (الافتراضي: أمس).
+  final yesterday = DateTime.now().subtract(const Duration(days: 1));
+  var statsDate =
+      '${yesterday.year}-${yesterday.month.toString().padLeft(2, '0')}-'
+      '${yesterday.day.toString().padLeft(2, '0')}';
+  bool isDuplicate(_CampaignImportEntry e) => c.campaigns.any(
+        (x) =>
+            x.date == statsDate &&
+            x.accountCode == e.accountCode &&
+            x.product == e.productName,
+      );
 
   final confirmed = await showDialog<bool>(
     context: context,
@@ -3375,14 +3382,40 @@ Future<void> showCampaignImportDialog(
             child: ListView(
               shrinkWrap: true,
               children: [
+                ListTile(
+                  leading: const Icon(Icons.event_rounded),
+                  title: Text('تاريخ الإحصائيات: $statsDate'),
+                  subtitle: const Text(
+                    'يُطبَّق على كل الحملات (وليس تاريخ بدء الحملة)',
+                  ),
+                  trailing: OutlinedButton(
+                    child: const Text('تغيير التاريخ'),
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: ctx,
+                        initialDate: DateTime.tryParse(statsDate) ?? yesterday,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime.now().add(const Duration(days: 1)),
+                      );
+                      if (picked != null) {
+                        setModalState(() {
+                          statsDate =
+                              '${picked.year}-${picked.month.toString().padLeft(2, '0')}-'
+                              '${picked.day.toString().padLeft(2, '0')}';
+                        });
+                      }
+                    },
+                  ),
+                ),
+                const Divider(),
                 for (final e in entries)
                   CheckboxListTile(
                     value: e.selected,
                     onChanged: (v) => setModalState(() => e.selected = v ?? false),
-                    title: Text('${e.row.date} • ${e.accountCode} • ${e.productName}'),
+                    title: Text('$statsDate • ${e.accountCode} • ${e.productName}'),
                     subtitle: Text(
                       'التكلفة: \$${e.row.cost.toStringAsFixed(3)} • النقرات: ${e.row.clicks}'
-                      '${e.isDuplicate ? ' • ⚠️ موجودة مسبقًا' : ''}'
+                      '${isDuplicate(e) ? ' • ⚠️ موجودة مسبقًا لهذا التاريخ' : ''}'
                       '${e.catalog == null ? ' • ⚠️ لم يُعثر على المنتج في الدليل' : ''}',
                     ),
                   ),
@@ -3412,7 +3445,7 @@ Future<void> showCampaignImportDialog(
       0,
       CampaignLogModel(
         seq: c.campaigns.length + 1,
-        date: e.row.date,
+        date: statsDate,
         beneficiary: p?.beneficiary ?? '',
         accountCode: e.accountCode,
         product: e.productName,
