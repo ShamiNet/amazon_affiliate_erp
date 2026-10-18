@@ -20,6 +20,7 @@ import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'campaign_report_mapper.dart';
+import 'campaign_table_prefs.dart';
 import 'report_backend_launcher.dart';
 import 'report_image_import_screen.dart';
 
@@ -2676,9 +2677,170 @@ class CampaignsInventoryScreen extends StatefulWidget {
 }
 
 class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
-  String _selectedBeneficiary = 'الكل';
-  String _searchQuery = '';
-  bool _showDailySummaryView = false;
+  static const _columnLabels = [
+    '#',
+    'التاريخ',
+    'المستفيد',
+    'رمز الحساب',
+    'المنتج',
+    'البروفايل',
+    'الإيميل',
+    'تكلفة الحملة',
+    'النقرات',
+    'الطلبات',
+    'التحويل CR%',
+    'المشحون',
+    'المبيعات',
+    'العمولة',
+    'المكافأة',
+    'الأرباح الكلية',
+    'صافي الربح',
+    'العائد ROI%',
+    'التوصية الذكية والملاحظات',
+  ];
+
+  late final CampaignTablePrefs _prefs = CampaignTablePrefs.load();
+  late final TextEditingController _searchCtrl =
+      TextEditingController(text: _prefs.search);
+  late String _selectedBeneficiary = _prefs.beneficiary;
+  late String _searchQuery = _prefs.search;
+  late bool _showDailySummaryView = _prefs.dailySummary;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _persist() {
+    _prefs
+      ..beneficiary = _selectedBeneficiary
+      ..search = _searchQuery
+      ..dailySummary = _showDailySummaryView
+      ..save();
+  }
+
+  Object _sortValue(CampaignLogModel x, int col) {
+    switch (col) {
+      case 0:
+        return x.seq;
+      case 1:
+        return x.date;
+      case 2:
+        return x.beneficiary;
+      case 3:
+        return x.accountCode;
+      case 4:
+        return x.product;
+      case 5:
+        return x.profile;
+      case 6:
+        return x.email;
+      case 7:
+        return x.cost;
+      case 8:
+        return x.clicks;
+      case 9:
+        return x.orderedItems;
+      case 10:
+        return x.conversionRate;
+      case 11:
+        return x.shippedItems;
+      case 12:
+        return x.totalRevenue;
+      case 13:
+        return x.commission;
+      case 14:
+        return x.bonus;
+      case 15:
+        return x.totalEarnings;
+      case 16:
+        return x.netProfit;
+      case 17:
+        return x.roi ?? double.negativeInfinity;
+      default:
+        return x.smartRecommendation;
+    }
+  }
+
+  int _compareValues(Object a, Object b) {
+    if (a is num && b is num) return a.compareTo(b);
+    return a.toString().toLowerCase().compareTo(b.toString().toLowerCase());
+  }
+
+  Future<void> _editColumnFilter(int col) async {
+    final ctrl = TextEditingController(text: _prefs.columnFilters[col] ?? '');
+    final value = await showDialog<String>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: Text('فلتر: ${_columnLabels[col]}'),
+          content: TextField(
+            controller: ctrl,
+            autofocus: true,
+            decoration: const InputDecoration(
+              helperText: 'نص للبحث، أو للأعمدة الرقمية: >5  <=2  =0  1..10',
+            ),
+            onSubmitted: (v) => Navigator.pop(ctx, v),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, ''),
+              child: const Text('مسح'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, ctrl.text),
+              child: const Text('تطبيق'),
+            ),
+          ],
+        ),
+      ),
+    );
+    ctrl.dispose();
+    if (value == null) return;
+    setState(() {
+      if (value.trim().isEmpty) {
+        _prefs.columnFilters.remove(col);
+      } else {
+        _prefs.columnFilters[col] = value.trim();
+      }
+    });
+    _persist();
+  }
+
+  DataColumn _sortableColumn(int col) {
+    final active = _prefs.columnFilters.containsKey(col);
+    return DataColumn(
+      onSort: (index, asc) {
+        setState(() {
+          _prefs.sortColumn = index;
+          _prefs.ascending = asc;
+        });
+        _persist();
+      },
+      label: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(_columnLabels[col]),
+          const SizedBox(width: 2),
+          InkWell(
+            onTap: () => _editColumnFilter(col),
+            child: Tooltip(
+              message: active
+                  ? 'فلتر مفعّل: ${_prefs.columnFilters[col]}'
+                  : 'إضافة فلتر',
+              child: Icon(
+                active ? Icons.filter_alt_rounded : Icons.filter_alt_outlined,
+                size: 16,
+                color: active ? const Color(0xFF38BDF8) : null,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2687,11 +2849,20 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
       'الكل',
       ...{...c.beneficiaries.map((b) => b.name)}
     ];
+    if (!beneficiariesList.contains(_selectedBeneficiary)) {
+      _selectedBeneficiary = 'الكل';
+    }
 
     final filtered = c.campaigns.where((item) {
       if (_selectedBeneficiary != 'الكل' &&
           item.beneficiary.trim() != _selectedBeneficiary.trim()) {
         return false;
+      }
+      for (final entry in _prefs.columnFilters.entries) {
+        final value = _sortValue(item, entry.key);
+        final numeric = value is num && value.isFinite ? value : null;
+        final text = value is double ? value.toStringAsFixed(3) : '$value';
+        if (!matchesColumnFilter(entry.value, text, numeric)) return false;
       }
       if (_searchQuery.trim().isNotEmpty) {
         final q = _searchQuery.trim().toLowerCase();
@@ -2704,6 +2875,14 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
       }
       return true;
     }).toList();
+
+    final sortCol = _prefs.sortColumn;
+    if (sortCol != null && sortCol < _columnLabels.length) {
+      filtered.sort((a, b) {
+        final r = _compareValues(_sortValue(a, sortCol), _sortValue(b, sortCol));
+        return _prefs.ascending ? r : -r;
+      });
+    }
 
     final filteredSpend = filtered.fold(0.0, (s, x) => s + x.cost);
     final filteredEarnings = filtered.fold(0.0, (s, x) => s + x.totalEarnings);
@@ -2726,6 +2905,7 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                   SizedBox(
                     width: 280,
                     child: TextField(
+                      controller: _searchCtrl,
                       decoration: InputDecoration(
                         hintText: 'بحث بالمنتج، الحساب، التاريخ، التوصية...',
                         prefixIcon: const Icon(Icons.search_rounded, size: 20),
@@ -2734,7 +2914,10 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                      onChanged: (v) => setState(() => _searchQuery = v),
+                      onChanged: (v) {
+                        setState(() => _searchQuery = v);
+                        _persist();
+                      },
                     ),
                   ),
                   DropdownButtonHideUnderline(
@@ -2758,6 +2941,7 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                         onChanged: (val) {
                           if (val != null) {
                             setState(() => _selectedBeneficiary = val);
+                            _persist();
                           }
                         },
                       ),
@@ -2767,9 +2951,25 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                     selected: _showDailySummaryView,
                     label: const Text('عرض الملخص اليومي المجمّع'),
                     avatar: const Icon(Icons.calendar_today_rounded, size: 16),
-                    onSelected: (v) =>
-                        setState(() => _showDailySummaryView = v),
+                    onSelected: (v) {
+                      setState(() => _showDailySummaryView = v);
+                      _persist();
+                    },
                   ),
+                  if (_prefs.columnFilters.isNotEmpty ||
+                      _prefs.sortColumn != null)
+                    TextButton.icon(
+                      icon: const Icon(Icons.filter_alt_off_rounded, size: 18),
+                      label: const Text('مسح الفلاتر والترتيب'),
+                      onPressed: () {
+                        setState(() {
+                          _prefs.columnFilters.clear();
+                          _prefs.sortColumn = null;
+                          _prefs.ascending = true;
+                        });
+                        _persist();
+                      },
+                    ),
                   // ملخص الفلتر الحالي
                   Text(
                     'النتائج: ${filtered.length} | التكلفة: \$${filteredSpend.toStringAsFixed(2)} | الأرباح: \$${filteredEarnings.toStringAsFixed(2)} | الصافي: \$${filteredNet.toStringAsFixed(2)} (${(filteredRoi * 100).toStringAsFixed(1)}%)',
@@ -2812,27 +3012,11 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
           dataRowMinHeight: 46,
           dataRowMaxHeight: 54,
           columnSpacing: 18,
-          columns: const [
-            DataColumn(label: Text('#')),
-            DataColumn(label: Text('التاريخ')),
-            DataColumn(label: Text('المستفيد')),
-            DataColumn(label: Text('رمز الحساب')),
-            DataColumn(label: Text('المنتج')),
-            DataColumn(label: Text('البروفايل')),
-            DataColumn(label: Text('الإيميل')),
-            DataColumn(label: Text('تكلفة الحملة')),
-            DataColumn(label: Text('النقرات')),
-            DataColumn(label: Text('الطلبات')),
-            DataColumn(label: Text('التحويل CR%')),
-            DataColumn(label: Text('المشحون')),
-            DataColumn(label: Text('المبيعات')),
-            DataColumn(label: Text('العمولة')),
-            DataColumn(label: Text('المكافأة')),
-            DataColumn(label: Text('الأرباح الكلية')),
-            DataColumn(label: Text('صافي الربح')),
-            DataColumn(label: Text('العائد ROI%')),
-            DataColumn(label: Text('التوصية الذكية والملاحظات')),
-            DataColumn(label: Text('إجراءات')),
+          sortColumnIndex: _prefs.sortColumn,
+          sortAscending: _prefs.ascending,
+          columns: [
+            for (var i = 0; i < _columnLabels.length; i++) _sortableColumn(i),
+            const DataColumn(label: Text('إجراءات')),
           ],
           rows: list.map((camp) {
             final net = camp.netProfit;
