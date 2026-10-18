@@ -19,6 +19,7 @@ import 'dart:math' as math;
 import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'campaign_report_mapper.dart';
 import 'report_backend_launcher.dart';
 import 'report_image_import_screen.dart';
 
@@ -1619,7 +1620,12 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
                       BankAccountsScreen(controller: c),
                       PlatformsAndTimingScreen(controller: c),
                       WorkflowStepsScreen(controller: c),
-                      const ReportImageImportScreen(),
+                      Builder(
+                        builder: (ctx) => ReportImageImportScreen(
+                          onImportCampaigns: (rows) =>
+                              showCampaignImportDialog(ctx, c, rows),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -3319,6 +3325,139 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
       ),
     );
   }
+}
+
+// ============================================================================
+// استيراد حملات من تقرير الإعلانات المستخرج إلى سجل الحملات اليومية
+// ============================================================================
+
+Future<void> showCampaignImportDialog(
+  BuildContext context,
+  AppDataController c,
+  List<ParsedCampaignRow> rows,
+) async {
+  final catalog = c.productsCatalog;
+  final entries = <_CampaignImportEntry>[];
+  for (final row in rows) {
+    final index = matchCatalogIndex(row, [
+      for (final p in catalog) (product: p.product, accountCode: p.accountCode),
+    ]);
+    final product = index == null ? null : catalog[index];
+    final productName = product?.product ?? row.campaignName;
+    final code = product?.accountCode ?? row.accountCode;
+    final duplicate = c.campaigns.any(
+      (e) =>
+          e.date == row.date &&
+          e.accountCode == code &&
+          e.product == productName,
+    );
+    entries.add(
+      _CampaignImportEntry(
+        row: row,
+        catalog: product,
+        productName: productName,
+        accountCode: code,
+        isDuplicate: duplicate,
+        selected: !duplicate && product != null,
+      ),
+    );
+  }
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setModalState) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('مراجعة الحملات قبل الإضافة'),
+          content: SizedBox(
+            width: 720,
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (final e in entries)
+                  CheckboxListTile(
+                    value: e.selected,
+                    onChanged: (v) => setModalState(() => e.selected = v ?? false),
+                    title: Text('${e.row.date} • ${e.accountCode} • ${e.productName}'),
+                    subtitle: Text(
+                      'التكلفة: \$${e.row.cost.toStringAsFixed(3)} • النقرات: ${e.row.clicks}'
+                      '${e.isDuplicate ? ' • ⚠️ موجودة مسبقًا' : ''}'
+                      '${e.catalog == null ? ' • ⚠️ لم يُعثر على المنتج في الدليل' : ''}',
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('إضافة المحدد'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  if (confirmed != true) return;
+
+  var added = 0;
+  for (final e in entries.where((e) => e.selected)) {
+    final p = e.catalog;
+    c.campaigns.insert(
+      0,
+      CampaignLogModel(
+        seq: c.campaigns.length + 1,
+        date: e.row.date,
+        beneficiary: p?.beneficiary ?? '',
+        accountCode: e.accountCode,
+        product: e.productName,
+        email: p?.email ?? '',
+        cost: e.row.cost,
+        profile: p?.profile ?? '',
+        password: p?.password ?? '',
+        clicks: e.row.clicks,
+        orderedItems: 0,
+        orderedRevenue: 0,
+        shippedItems: 0,
+        returnedItems: 0,
+        totalRevenue: 0,
+        commission: 0,
+        bonus: 0,
+        isPending: true,
+        adUrl: p?.adUrl ?? '',
+      ),
+    );
+    added++;
+  }
+  if (added > 0) c.saveToDisk();
+  if (context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('تمت إضافة $added حملة إلى الحملات اليومية.')),
+    );
+  }
+}
+
+class _CampaignImportEntry {
+  _CampaignImportEntry({
+    required this.row,
+    required this.catalog,
+    required this.productName,
+    required this.accountCode,
+    required this.isDuplicate,
+    required this.selected,
+  });
+
+  final ParsedCampaignRow row;
+  final ProductCatalogModel? catalog;
+  final String productName;
+  final String accountCode;
+  final bool isDuplicate;
+  bool selected;
 }
 
 // ============================================================================

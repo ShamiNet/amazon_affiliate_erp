@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:amazon_affiliate_erp/campaign_report_mapper.dart';
 import 'package:amazon_affiliate_erp/gemini_api_key_vault.dart';
 import 'package:image/image.dart' as img;
 import 'package:pasteboard/pasteboard.dart';
@@ -446,7 +447,11 @@ class ReportImageImportService {
 }
 
 class ReportImageImportScreen extends StatefulWidget {
-  const ReportImageImportScreen({super.key});
+  const ReportImageImportScreen({super.key, this.onImportCampaigns});
+
+  /// Receives the parsed ad-campaign rows so the host app can add them to
+  /// its daily campaign records.
+  final Future<void> Function(List<ParsedCampaignRow> rows)? onImportCampaigns;
 
   @override
   State<ReportImageImportScreen> createState() =>
@@ -986,6 +991,26 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
     }
   }
 
+  Future<void> _sendToCampaigns() async {
+    final report = _report;
+    final callback = widget.onImportCampaigns;
+    if (report == null || callback == null) return;
+    try {
+      final rows = parseAdCampaignRows(
+        report.columns,
+        _editedRows,
+        fallbackDate: DateTime.now().toIso8601String().substring(0, 10),
+      );
+      if (rows.isEmpty) {
+        setState(() => _error = 'لا توجد صفوف صالحة للإضافة.');
+        return;
+      }
+      await callback(rows);
+    } on FormatException catch (e) {
+      setState(() => _error = e.message);
+    }
+  }
+
   String _importComparisonSummary() {
     final importedReport = _importedReport;
     final report = _report;
@@ -1220,6 +1245,14 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
                                     : 'استخراج البيانات',
                               ),
                             ),
+                            if (_report != null &&
+                                _reportType == ReportImageType.adCampaigns &&
+                                widget.onImportCampaigns != null)
+                              FilledButton.icon(
+                                onPressed: _sendToCampaigns,
+                                icon: const Icon(Icons.playlist_add_rounded),
+                                label: const Text('إرسال إلى الحملات اليومية'),
+                              ),
                             if (_report != null) ...[
                               OutlinedButton.icon(
                                 onPressed: _copyToClipboard,
