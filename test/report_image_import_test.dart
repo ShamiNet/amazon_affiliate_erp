@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:amazon_affiliate_erp/gemini_api_key_vault.dart';
 import 'package:amazon_affiliate_erp/report_image_import_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -244,6 +245,38 @@ void main() {
     expect(find.text('استخراج البيانات'), findsOneWidget);
     expect(find.text('أرباح Amazon'), findsWidgets);
     expect(find.text('لصق من الحافظة (Ctrl+V)'), findsOneWidget);
+    expect(find.text('لصق جدول من الحافظة'), findsOneWidget);
+  });
+
+  testWidgets('pastes clipboard TSV into the report table', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.getData') {
+        return {'text': 'Date\tClicks\r\n2026-10-18\t12'};
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+
+    await tester.pumpWidget(
+      const MaterialApp(home: ReportImageImportScreen()),
+    );
+    await tester.tap(find.text('لصق جدول من الحافظة'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Date'), findsOneWidget);
+    expect(find.text('Clicks'), findsOneWidget);
+    expect(
+      tester
+          .widgetList<TextFormField>(find.byType(TextFormField))
+          .map((field) => field.initialValue),
+      ['2026-10-18', '12'],
+    );
   });
 }
 

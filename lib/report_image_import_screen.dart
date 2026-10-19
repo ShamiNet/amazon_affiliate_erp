@@ -83,6 +83,14 @@ class ExtractedReport {
     ].join('\r\n');
   }
 
+  String toRowsOnlyTsv(List<List<String>> editedRows) {
+    String cleanCell(String value) =>
+        value.replaceAll(RegExp(r'[\t\r\n]+'), ' ').trim();
+    return editedRows
+        .map((row) => row.map(cleanCell).join('\t'))
+        .join('\r\n');
+  }
+
   String toCsv(List<List<String>> editedRows) {
     final rows = [
       columns.map(_quoteCsvCell).join(','),
@@ -447,11 +455,20 @@ class ReportImageImportService {
 }
 
 class ReportImageImportScreen extends StatefulWidget {
-  const ReportImageImportScreen({super.key, this.onImportCampaigns});
+  const ReportImageImportScreen({
+    super.key,
+    this.onImportCampaigns,
+    this.onImportAmazonEarnings,
+  });
 
   /// Receives the parsed ad-campaign rows so the host app can add them to
   /// its daily campaign records.
   final Future<void> Function(List<ParsedCampaignRow> rows)? onImportCampaigns;
+
+  /// Receives the parsed Amazon earnings rows so the host app can paste/apply
+  /// them into the appropriate campaign(s) in the daily earnings log.
+  final Future<void> Function(List<ParsedAmazonEarningsRow> rows)?
+      onImportAmazonEarnings;
 
   @override
   State<ReportImageImportScreen> createState() =>
@@ -867,8 +884,112 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
     await Clipboard.setData(ClipboardData(text: report.toTsv(_editedRows)));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تم نسخ البيانات. الصقها الآن في الشيت.')),
+      const SnackBar(
+        content: Text('تم نسخ الجدول مع العناوين (TSV) إلى الحافظة.'),
+      ),
     );
+  }
+
+  Future<void> _copyAmazonEarningsForSheet() async {
+    final report = _report;
+    if (report == null || _editedRows.isEmpty) return;
+    try {
+      final parsedRows = parseAmazonEarningsRows(report.columns, _editedRows);
+      if (parsedRows.isEmpty) {
+        throw const FormatException('لا توجد صفوف أرباح صالحة للنسخ.');
+      }
+      final tsv = formatAmazonEarningsForSheetTsv(parsedRows);
+      await Clipboard.setData(ClipboardData(text: tsv));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'تم نسخ صف الأرباح بالترتيب المطابق للأرباح (بدون عناوين: من النقرات إلى المكافآت). '
+            'قف على خلية "النقرات" في الشيت واضغط Ctrl+V، أو الصقها مباشرة داخل شاشة الأرباح ✅',
+          ),
+          duration: Duration(seconds: 5),
+        ),
+      );
+    } on FormatException catch (_) {
+      await Clipboard.setData(
+        ClipboardData(text: report.toRowsOnlyTsv(_editedRows)),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم نسخ الصفوف بدون عناوين إلى الحافظة.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _pasteReportFromClipboard() async {
+    try {
+      final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = clipboardData?.text;
+      if (text == null || text.trim().isEmpty) {
+        throw const FormatException('الحافظة لا تحتوي على بيانات نصية.');
+      }
+
+      ExtractedReport report;
+      try {
+        final candidate = ExtractedReport.fromDelimitedText(
+          text,
+          delimiter: text.contains('\t') ? '\t' : ',',
+        );
+        if (candidate.rows.isEmpty ||
+            candidate.columns.any((column) => column.trim().isEmpty)) {
+          throw const FormatException('بدون عناوين');
+        }
+        report = candidate;
+      } on FormatException catch (_) {
+        // إذا كان النص المنسوخ في الحافظة عبارة عن صف أرباح بدون عناوين (مثل مخرجات نسخ صف الأرباح فقط)
+        final earningsRows = parseAmazonEarningsFromClipboardText(text);
+        report = ExtractedReport(
+          title: 'بيانات أرباح أمازون من الحافظة',
+          columns: const [
+            'النقرات (Clicks)',
+            'الطلبات المسجلة (Ordered Items)',
+            'نسبة التحويل (Conversion %)',
+            'قيمة الطلبات المقدرة (Ordered Revenue)',
+            'المنتجات المشحونة (Shipped Items)',
+            'المنتجات المرتجعة (Returned Items)',
+            'إجمالي قيمة المبيعات (Total Revenue)',
+            'عمولات أمازون (Commission)',
+            'المكافآت الإضافية (Bonus)',
+          ],
+          rows: earningsRows
+              .map((r) => r.toSheetTsvRow().split('\t'))
+              .toList(),
+          warnings: const [],
+        );
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _report = report;
+        _editedRows = report.rows.map((row) => [...row]).toList();
+        _importedReport = null;
+        _lastImportPath = null;
+        _error = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'تم استبدال الجدول بـ ${report.rows.length} صف و'
+            '${report.columns.length} عمود.',
+          ),
+        ),
+      );
+    } on FormatException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } on PlatformException catch (error) {
+      if (mounted) {
+        setState(() => _error = error.message ?? 'تعذرت قراءة نص الحافظة.');
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = 'تعذر لصق الجدول: $error');
+    }
   }
 
   Future<void> _exportReport({required String format}) async {
@@ -1005,6 +1126,25 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
         setState(() => _error = 'لا توجد صفوف صالحة للإضافة.');
         return;
       }
+      await callback(rows);
+    } on FormatException catch (e) {
+      setState(() => _error = e.message);
+    }
+  }
+
+  Future<void> _sendToAmazonEarnings() async {
+    final report = _report;
+    final callback = widget.onImportAmazonEarnings;
+    if (report == null || callback == null) return;
+    try {
+      final rows = parseAmazonEarningsRows(report.columns, _editedRows);
+      if (rows.isEmpty) {
+        setState(() => _error = 'لا توجد صفوف أرباح صالحة للترحيل.');
+        return;
+      }
+      await Clipboard.setData(
+        ClipboardData(text: formatAmazonEarningsForSheetTsv(rows)),
+      );
       await callback(rows);
     } on FormatException catch (e) {
       setState(() => _error = e.message);
@@ -1253,11 +1393,34 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
                                 icon: const Icon(Icons.playlist_add_rounded),
                                 label: const Text('إرسال إلى الحملات اليومية'),
                               ),
+                            if (_report != null &&
+                                _reportType == ReportImageType.amazonEarnings &&
+                                widget.onImportAmazonEarnings != null)
+                              FilledButton.icon(
+                                onPressed: _sendToAmazonEarnings,
+                                icon: const Icon(
+                                  Icons.assignment_returned_rounded,
+                                ),
+                                label: const Text(
+                                  'لصق في المكان المناسب ضمن الأرباح',
+                                ),
+                              ),
+                            if (_report != null &&
+                                _reportType == ReportImageType.amazonEarnings)
+                              FilledButton.tonalIcon(
+                                onPressed: _copyAmazonEarningsForSheet,
+                                icon: const Icon(Icons.table_rows_rounded),
+                                label: const Text(
+                                  'نسخ صف الأرباح فقط (للشيت والأرباح)',
+                                ),
+                              ),
                             if (_report != null) ...[
                               OutlinedButton.icon(
                                 onPressed: _copyToClipboard,
                                 icon: const Icon(Icons.content_copy_rounded),
-                                label: const Text('نسخ TSV إلى الحافظة'),
+                                label: const Text(
+                                  'نسخ الجدول مع العناوين (TSV)',
+                                ),
                               ),
                               OutlinedButton.icon(
                                 onPressed: () => _exportReport(format: 'csv'),
@@ -1279,6 +1442,11 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
                               onPressed: _importSpreadsheet,
                               icon: const Icon(Icons.upload_file_rounded),
                               label: const Text('استيراد CSV/TSV/Excel'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: _pasteReportFromClipboard,
+                              icon: const Icon(Icons.table_view_rounded),
+                              label: const Text('لصق جدول من الحافظة'),
                             ),
                           ],
                         ),
@@ -1435,8 +1603,7 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
                                       !comparison.rowDiffers(rowIndex)
                                   ? null
                                   : WidgetStatePropertyAll(
-                                      (rowIndex >=
-                                                  _importedReport!.rows.length
+                                      (rowIndex >= _importedReport!.rows.length
                                               ? colors.tertiaryContainer
                                               : colors.errorContainer)
                                           .withValues(alpha: 0.35),

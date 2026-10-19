@@ -1625,6 +1625,8 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
                         builder: (ctx) => ReportImageImportScreen(
                           onImportCampaigns: (rows) =>
                               showCampaignImportDialog(ctx, c, rows),
+                          onImportAmazonEarnings: (rows) =>
+                              showAmazonEarningsImportDialog(ctx, c, rows),
                         ),
                       ),
                     ],
@@ -2983,6 +2985,11 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                     label: const Text('تسجيل حملة يومية جديدة'),
                     onPressed: () => _showAddOrEditCampaignDialog(context),
                   ),
+                  FilledButton.tonalIcon(
+                    icon: const Icon(Icons.content_paste_go_rounded, size: 18),
+                    label: const Text('لصق أرباح أمازون من الحافظة'),
+                    onPressed: () => _pasteAmazonEarningsViaDialog(context),
+                  ),
                 ],
               ),
             ),
@@ -3109,6 +3116,27 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                             'رابط الإعلان',
                           ),
                         ),
+                      IconButton(
+                        tooltip:
+                            'لصق أرباح أمازون من الحافظة مباشرة في هذه الحملة (#${camp.seq})',
+                        icon: const Icon(
+                          Icons.content_paste_go_rounded,
+                          size: 18,
+                          color: Color(0xFF10B981),
+                        ),
+                        onPressed: () =>
+                            _pasteAmazonEarningsIntoCampaignRow(context, camp),
+                      ),
+                      IconButton(
+                        tooltip:
+                            'نسخ صف أرباح هذه الحملة (مهيأ للصق في الشيت)',
+                        icon: const Icon(
+                          Icons.table_rows_outlined,
+                          size: 18,
+                        ),
+                        onPressed: () =>
+                            _copyCampaignEarningsForSheet(context, camp),
+                      ),
                       IconButton(
                         tooltip: 'تعديل الحملة',
                         icon: const Icon(Icons.edit_outlined, size: 18),
@@ -3403,6 +3431,61 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
+                    Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: OutlinedButton.icon(
+                        icon: const Icon(
+                          Icons.content_paste_go_rounded,
+                          size: 18,
+                        ),
+                        label: const Text(
+                          'لصق بيانات أرباح أمازون من الحافظة في الحقول أدناه',
+                        ),
+                        onPressed: () async {
+                          try {
+                            final data =
+                                await Clipboard.getData(Clipboard.kTextPlain);
+                            final text = data?.text ?? '';
+                            final parsed =
+                                parseAmazonEarningsFromClipboardText(text);
+                            if (parsed.isEmpty) return;
+                            final r = parsed.reduce((a, b) => a + b);
+                            setModalState(() {
+                              if (r.clicks > 0 ||
+                                  (int.tryParse(clicksCtrl.text) ?? 0) == 0) {
+                                clicksCtrl.text = '${r.clicks}';
+                              }
+                              ordersCtrl.text = '${r.orderedItems}';
+                              orderedRevCtrl.text =
+                                  r.orderedRevenue.toStringAsFixed(2);
+                              shippedCtrl.text = '${r.shippedItems}';
+                              returnedCtrl.text = '${r.returnedItems}';
+                              totalRevCtrl.text =
+                                  r.totalRevenue.toStringAsFixed(2);
+                              commCtrl.text = r.commission.toStringAsFixed(2);
+                              bonusCtrl.text = r.bonus.toStringAsFixed(2);
+                              isPending = false;
+                            });
+                            if (ctx.mounted) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'تم لصق أرباح أمازون في حقول الحملة بنجاح ✅',
+                                  ),
+                                ),
+                              );
+                            }
+                          } on FormatException catch (e) {
+                            if (ctx.mounted) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                SnackBar(content: Text(e.message)),
+                              );
+                            }
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     Row(
                       children: [
                         Expanded(
@@ -3421,7 +3504,7 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                             controller: ordersCtrl,
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
-                              labelText: 'الطلبات (Ordered)',
+                              labelText: 'الطلبات المسجلة (Ordered)',
                               border: OutlineInputBorder(),
                             ),
                           ),
@@ -3429,10 +3512,36 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: TextField(
+                            controller: orderedRevCtrl,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'قيمة الطلبات المقدرة (\$)',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
                             controller: shippedCtrl,
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
-                              labelText: 'المشحونة (Shipped)',
+                              labelText: 'المنتجات المشحونة (Shipped)',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            controller: returnedCtrl,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'المرتجعة (Returned)',
                               border: OutlineInputBorder(),
                             ),
                           ),
@@ -3443,7 +3552,7 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                             controller: totalRevCtrl,
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
-                              labelText: 'إجمالي المبيعات (\$)',
+                              labelText: 'إجمالي قيمة المبيعات (\$)',
                               border: OutlineInputBorder(),
                             ),
                           ),
@@ -3508,6 +3617,152 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
         },
       ),
     );
+  }
+
+  Future<void> _copyCampaignEarningsForSheet(
+    BuildContext context,
+    CampaignLogModel camp,
+  ) async {
+    final row = ParsedAmazonEarningsRow(
+      clicks: camp.clicks,
+      orderedItems: camp.orderedItems,
+      orderedRevenue: camp.orderedRevenue,
+      shippedItems: camp.shippedItems,
+      returnedItems: camp.returnedItems,
+      totalRevenue: camp.totalRevenue,
+      commission: camp.commission,
+      bonus: camp.bonus,
+      date: camp.date,
+      label: '${camp.accountCode} ${camp.product}',
+    );
+    await Clipboard.setData(ClipboardData(text: row.toSheetTsvRow()));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'تم نسخ صف أرباح الحملة #${camp.seq} (${camp.accountCode}) بالترتيب المطابق للشيت (من النقرات إلى المكافآت) ✅',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pasteAmazonEarningsViaDialog(BuildContext context) async {
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = data?.text ?? '';
+      if (text.trim().isEmpty) {
+        throw const FormatException(
+          'الحافظة فارغة. انسخ أرباح أمازون من تبويب "استخراج بيانات التقارير" أولاً.',
+        );
+      }
+      final rows = parseAmazonEarningsFromClipboardText(text);
+      if (!context.mounted) return;
+      await showAmazonEarningsImportDialog(
+        context,
+        widget.controller,
+        rows,
+      );
+    } on FormatException catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message)),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر قراءة بيانات الأرباح من الحافظة: $e')),
+      );
+    }
+  }
+
+  Future<void> _pasteAmazonEarningsIntoCampaignRow(
+    BuildContext context,
+    CampaignLogModel camp,
+  ) async {
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = data?.text ?? '';
+      if (text.trim().isEmpty) {
+        throw const FormatException(
+          'الحافظة فارغة. انسخ أرباح أمازون أولاً ثم اضغط لصق.',
+        );
+      }
+      final rows = parseAmazonEarningsFromClipboardText(text);
+      if (rows.isEmpty) {
+        throw const FormatException('لم يتم العثور على صفوف أرباح صالحة.');
+      }
+      if (rows.length > 1) {
+        if (!context.mounted) return;
+        await showAmazonEarningsImportDialog(
+          context,
+          widget.controller,
+          rows,
+          preselectedCampaign: camp,
+        );
+        return;
+      }
+
+      final r = rows.first;
+      // حفظ النسخة السابقة لإتاحة التراجع الفوري
+      final prevClicks = camp.clicks;
+      final prevOrderedItems = camp.orderedItems;
+      final prevOrderedRevenue = camp.orderedRevenue;
+      final prevShippedItems = camp.shippedItems;
+      final prevReturnedItems = camp.returnedItems;
+      final prevTotalRevenue = camp.totalRevenue;
+      final prevCommission = camp.commission;
+      final prevBonus = camp.bonus;
+      final prevIsPending = camp.isPending;
+
+      if (r.clicks > 0 || camp.clicks == 0) {
+        camp.clicks = r.clicks;
+      }
+      camp.orderedItems = r.orderedItems;
+      camp.orderedRevenue = r.orderedRevenue;
+      camp.shippedItems = r.shippedItems;
+      camp.returnedItems = r.returnedItems;
+      camp.totalRevenue = r.totalRevenue;
+      camp.commission = r.commission;
+      camp.bonus = r.bonus;
+      camp.isPending = false;
+
+      await widget.controller.saveToDisk();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'تم لصق أرباح أمازون في الحملة #${camp.seq} (${camp.accountCode} - ${camp.product} • ${camp.date}) '
+            '| الأرباح: \$${camp.totalEarnings.toStringAsFixed(2)} | الصافي: \$${camp.netProfit.toStringAsFixed(2)} ✅',
+          ),
+          duration: const Duration(seconds: 6),
+          action: SnackBarAction(
+            label: 'تراجع',
+            onPressed: () {
+              camp.clicks = prevClicks;
+              camp.orderedItems = prevOrderedItems;
+              camp.orderedRevenue = prevOrderedRevenue;
+              camp.shippedItems = prevShippedItems;
+              camp.returnedItems = prevReturnedItems;
+              camp.totalRevenue = prevTotalRevenue;
+              camp.commission = prevCommission;
+              camp.bonus = prevBonus;
+              camp.isPending = prevIsPending;
+              widget.controller.saveToDisk();
+            },
+          ),
+        ),
+      );
+    } on FormatException catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message)),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر لصق الأرباح: $e')),
+      );
+    }
   }
 }
 
@@ -3675,6 +3930,569 @@ class _CampaignImportEntry {
   final String accountCode;
   final bool isDuplicate;
   bool selected;
+}
+
+// ============================================================================
+// ترحيل ولصق أرباح أمازون المستخرجة في المكان المناسب ضمن سجل الأرباح اليومية
+// ============================================================================
+
+Future<void> showAmazonEarningsImportDialog(
+  BuildContext context,
+  AppDataController c,
+  List<ParsedAmazonEarningsRow> rows, {
+  CampaignLogModel? preselectedCampaign,
+}) async {
+  if (rows.isEmpty) return;
+
+  // استخراج جميع التواريخ الموجودة في سجل الحملات مرتبة من الأحدث للأقدم
+  final existingDates = <String>{
+    for (final camp in c.campaigns)
+      if (camp.date.trim().isNotEmpty) camp.date.trim(),
+  }.toList()
+    ..sort((a, b) => b.compareTo(a));
+
+  final pendingDates = <String>{
+    for (final camp in c.campaigns)
+      if (camp.isPending && camp.date.trim().isNotEmpty) camp.date.trim(),
+  }.toList()
+    ..sort((a, b) => b.compareTo(a));
+
+  final yesterday = DateTime.now().subtract(const Duration(days: 1));
+  final fallbackYesterday =
+      '${yesterday.year}-${yesterday.month.toString().padLeft(2, '0')}-'
+      '${yesterday.day.toString().padLeft(2, '0')}';
+
+  String selectedDateFilter = preselectedCampaign?.date ??
+      rows.first.date ??
+      (pendingDates.isNotEmpty
+          ? pendingDates.first
+          : (existingDates.isNotEmpty ? existingDates.first : 'الكل'));
+
+  if (selectedDateFilter != 'الكل' &&
+      !existingDates.contains(selectedDateFilter)) {
+    existingDates.insert(0, selectedDateFilter);
+  }
+
+  var mergeAllRowsIntoOne = false;
+  var overwriteClicksEvenIfZero = false;
+
+  List<CampaignLogModel> filteredCampaignsForDate(String dateFilter) {
+    final list = dateFilter == 'الكل'
+        ? [...c.campaigns]
+        : c.campaigns.where((x) => x.date.trim() == dateFilter).toList();
+    // ترتيب الحملات بحيث تظهر الحملات "قيد التشغيل" أولاً ثم الأحدث
+    list.sort((a, b) {
+      if (a.isPending != b.isPending) return a.isPending ? -1 : 1;
+      final dateCmp = b.date.compareTo(a.date);
+      if (dateCmp != 0) return dateCmp;
+      return b.seq.compareTo(a.seq);
+    });
+    return list;
+  }
+
+  CampaignLogModel? findBestCampaignMatch(
+    ParsedAmazonEarningsRow row,
+    List<CampaignLogModel> candidates,
+    Set<int> alreadyAssignedSeqs,
+  ) {
+    if (preselectedCampaign != null &&
+        candidates.any((x) => x.seq == preselectedCampaign.seq)) {
+      return preselectedCampaign;
+    }
+    final code = row.accountCode;
+    final labelLower = row.label.toLowerCase().trim();
+    if (code.isNotEmpty) {
+      for (final camp in candidates) {
+        if (!alreadyAssignedSeqs.contains(camp.seq) &&
+            camp.accountCode.trim().toUpperCase() == code) {
+          return camp;
+        }
+      }
+    }
+    if (labelLower.isNotEmpty) {
+      for (final camp in candidates) {
+        if (alreadyAssignedSeqs.contains(camp.seq)) continue;
+        if (camp.product.toLowerCase().contains(labelLower) ||
+            camp.profile.toLowerCase().contains(labelLower) ||
+            camp.email.toLowerCase().contains(labelLower)) {
+          return camp;
+        }
+      }
+    }
+    for (final camp in candidates) {
+      if (!alreadyAssignedSeqs.contains(camp.seq) && camp.isPending) {
+        return camp;
+      }
+    }
+    for (final camp in candidates) {
+      if (!alreadyAssignedSeqs.contains(camp.seq)) {
+        return camp;
+      }
+    }
+    return candidates.isNotEmpty ? candidates.first : null;
+  }
+
+  List<_AmazonEarningsTargetEntry> buildEntries(
+    List<ParsedAmazonEarningsRow> sourceRows,
+    String dateFilter,
+  ) {
+    final candidates = filteredCampaignsForDate(dateFilter);
+    final usedSeqs = <int>{};
+    final result = <_AmazonEarningsTargetEntry>[];
+    for (final r in sourceRows) {
+      final matched = findBestCampaignMatch(r, candidates, usedSeqs);
+      if (matched != null) usedSeqs.add(matched.seq);
+      result.add(
+        _AmazonEarningsTargetEntry(
+          row: r,
+          selected: true,
+          targetCampaignSeq: matched?.seq,
+          newCatalogProductId: matched == null && c.productsCatalog.isNotEmpty
+              ? c.productsCatalog.first.id
+              : null,
+        ),
+      );
+    }
+    return result;
+  }
+
+  var entries = buildEntries(rows, selectedDateFilter);
+
+  void rebuildEntries() {
+    final effectiveRows = mergeAllRowsIntoOne && rows.length > 1
+        ? [rows.reduce((a, b) => a + b)]
+        : rows;
+    entries = buildEntries(effectiveRows, selectedDateFilter);
+  }
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setModalState) {
+        final availableCampaigns = filteredCampaignsForDate(selectedDateFilter);
+        final effectiveNewDate =
+            selectedDateFilter == 'الكل' ? fallbackYesterday : selectedDateFilter;
+
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.assignment_returned_rounded, color: Color(0xFF10B981)),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'لصق أرباح أمازون في المكان المناسب ضمن الأرباح',
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 820,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Card(
+                      margin: EdgeInsets.zero,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Wrap(
+                              spacing: 12,
+                              runSpacing: 10,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                const Icon(Icons.event_note_rounded, size: 20),
+                                const Text(
+                                  'تصفية الحملات حسب التاريخ:',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                DropdownButton<String>(
+                                  value: existingDates.contains(selectedDateFilter)
+                                      ? selectedDateFilter
+                                      : 'الكل',
+                                  items: [
+                                    const DropdownMenuItem(
+                                      value: 'الكل',
+                                      child: Text('كل التواريخ (الأحدث أولاً)'),
+                                    ),
+                                    for (final d in existingDates)
+                                      DropdownMenuItem(
+                                        value: d,
+                                        child: Text(
+                                          'تاريخ: $d (${c.campaigns.where((x) => x.date == d).length} حملة)',
+                                        ),
+                                      ),
+                                  ],
+                                  onChanged: (val) {
+                                    if (val == null) return;
+                                    setModalState(() {
+                                      selectedDateFilter = val;
+                                      rebuildEntries();
+                                    });
+                                  },
+                                ),
+                                OutlinedButton.icon(
+                                  icon: const Icon(
+                                    Icons.calendar_month_rounded,
+                                    size: 18,
+                                  ),
+                                  label: const Text('تاريخ آخر'),
+                                  onPressed: () async {
+                                    final picked = await showDatePicker(
+                                      context: ctx,
+                                      initialDate:
+                                          DateTime.tryParse(effectiveNewDate) ??
+                                              yesterday,
+                                      firstDate: DateTime(2020),
+                                      lastDate: DateTime.now()
+                                          .add(const Duration(days: 2)),
+                                    );
+                                    if (picked != null) {
+                                      final formatted =
+                                          '${picked.year}-${picked.month.toString().padLeft(2, '0')}-'
+                                          '${picked.day.toString().padLeft(2, '0')}';
+                                      setModalState(() {
+                                        if (!existingDates.contains(formatted)) {
+                                          existingDates.insert(0, formatted);
+                                        }
+                                        selectedDateFilter = formatted;
+                                        rebuildEntries();
+                                      });
+                                    }
+                                  },
+                                ),
+                              ],
+                            ),
+                            if (rows.length > 1) ...[
+                              const SizedBox(height: 6),
+                              SwitchListTile(
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                                value: mergeAllRowsIntoOne,
+                                title: const Text(
+                                  'جمع ودمج كافة صفوف الجدول المستخرج في حملة واحدة',
+                                  style: TextStyle(fontWeight: FontWeight.w600),
+                                ),
+                                subtitle: const Text(
+                                  'فعّل هذا الخيار إذا كانت الصورة تحتوي عدة منتجات تابعة لنفس حساب أمازون وتريد جمع أرباحها في سجل حملة واحد.',
+                                ),
+                                onChanged: (v) {
+                                  setModalState(() {
+                                    mergeAllRowsIntoOne = v;
+                                    rebuildEntries();
+                                  });
+                                },
+                              ),
+                            ],
+                            CheckboxListTile(
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                              value: overwriteClicksEvenIfZero,
+                              title: const Text(
+                                'استبدال النقرات حتى لو كانت نقرات أمازون صفراً (0)',
+                              ),
+                              subtitle: const Text(
+                                'افتراضياً: إذا كانت النقرات في صورة أمازون > 0 يتم تحديثها، وإذا كانت 0 نحتفظ بنقرات الحملة الإعلانية المسجلة سابقاً.',
+                              ),
+                              onChanged: (v) {
+                                setModalState(() {
+                                  overwriteClicksEvenIfZero = v ?? false;
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    for (var i = 0; i < entries.length; i++)
+                      Card(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Checkbox(
+                                    value: entries[i].selected,
+                                    onChanged: (v) => setModalState(
+                                      () => entries[i].selected = v ?? false,
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      entries[i].row.label.isNotEmpty
+                                          ? 'بيانات الأرباح المستخرجة (${entries[i].row.label})'
+                                          : 'صف الأرباح المستخرج #${i + 1}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ),
+                                  TextButton.icon(
+                                    icon: const Icon(
+                                      Icons.content_copy_rounded,
+                                      size: 16,
+                                    ),
+                                    label: const Text('نسخ هذا الصف للشيت'),
+                                    onPressed: () async {
+                                      await Clipboard.setData(
+                                        ClipboardData(
+                                          text: entries[i].row.toSheetTsvRow(),
+                                        ),
+                                      );
+                                      if (ctx.mounted) {
+                                        ScaffoldMessenger.of(ctx).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'تم نسخ الصف بصيغة جاهزة للصق في خلية "النقرات" بالشيت ✅',
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    },
+                                  ),
+                                ],
+                              ),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 8),
+                                child: Wrap(
+                                  spacing: 14,
+                                  runSpacing: 6,
+                                  children: [
+                                    Text('النقرات: ${entries[i].row.clicks}'),
+                                    Text(
+                                      'الطلبات: ${entries[i].row.orderedItems} '
+                                      '(CR: ${(entries[i].row.conversionRate * 100).toStringAsFixed(2)}%)',
+                                    ),
+                                    Text(
+                                      'قيمة الطلبات: \$${entries[i].row.orderedRevenue.toStringAsFixed(2)}',
+                                    ),
+                                    Text(
+                                      'المشحون: ${entries[i].row.shippedItems}',
+                                    ),
+                                    Text(
+                                      'المرتجع: ${entries[i].row.returnedItems}',
+                                    ),
+                                    Text(
+                                      'المبيعات: \$${entries[i].row.totalRevenue.toStringAsFixed(2)}',
+                                    ),
+                                    Text(
+                                      'العمولة: \$${entries[i].row.commission.toStringAsFixed(2)}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF10B981),
+                                      ),
+                                    ),
+                                    Text(
+                                      'المكافآت: \$${entries[i].row.bonus.toStringAsFixed(2)}',
+                                    ),
+                                    Text(
+                                      'إجمالي الربح: \$${entries[i].row.totalEarnings.toStringAsFixed(2)}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF38BDF8),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              DropdownButtonFormField<String>(
+                                value: entries[i].dropdownValue(
+                                  availableCampaigns,
+                                  c.productsCatalog,
+                                ),
+                                isExpanded: true,
+                                decoration: const InputDecoration(
+                                  labelText:
+                                      'المكان المناسب ضمن الأرباح (اختر الحملة المستهدفة للصق الأرباح فيها)',
+                                  border: OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                                items: [
+                                  for (final camp in availableCampaigns)
+                                    DropdownMenuItem(
+                                      value: 'camp:${camp.seq}',
+                                      child: Text(
+                                        '#${camp.seq} • ${camp.date} • ${camp.accountCode} - ${camp.product} (${camp.beneficiary}) '
+                                        '[التكلفة: \$${camp.cost.toStringAsFixed(2)}] '
+                                        '${camp.isPending ? "⏳ قيد التشغيل" : "• ربح مسجل: \$${camp.totalEarnings.toStringAsFixed(2)}"}',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  for (final prod in c.productsCatalog)
+                                    DropdownMenuItem(
+                                      value: 'new:${prod.id}',
+                                      child: Text(
+                                        '➕ إنشاء سجل حملة جديد بتاريخ ($effectiveNewDate): '
+                                        '${prod.accountCode} - ${prod.product} (${prod.beneficiary})',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                ],
+                                onChanged: (val) {
+                                  if (val == null) return;
+                                  setModalState(() {
+                                    if (val.startsWith('camp:')) {
+                                      entries[i].targetCampaignSeq =
+                                          int.tryParse(val.substring(5));
+                                      entries[i].newCatalogProductId = null;
+                                    } else if (val.startsWith('new:')) {
+                                      entries[i].targetCampaignSeq = null;
+                                      entries[i].newCatalogProductId =
+                                          int.tryParse(val.substring(4));
+                                    }
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('إلغاء'),
+              ),
+              FilledButton.icon(
+                icon: const Icon(Icons.check_circle_outline_rounded),
+                label: const Text('لصق وحفظ في الأرباح اليومية'),
+                onPressed: () => Navigator.pop(ctx, true),
+              ),
+            ],
+          ),
+        );
+      },
+    ),
+  );
+
+  if (confirmed != true) return;
+
+  var updatedCount = 0;
+  var createdCount = 0;
+  final effectiveNewDate =
+      selectedDateFilter == 'الكل' ? fallbackYesterday : selectedDateFilter;
+
+  for (final e in entries.where((x) => x.selected)) {
+    final r = e.row;
+    if (e.targetCampaignSeq != null) {
+      final idx =
+          c.campaigns.indexWhere((camp) => camp.seq == e.targetCampaignSeq);
+      if (idx != -1) {
+        final camp = c.campaigns[idx];
+        if (r.clicks > 0 || overwriteClicksEvenIfZero || camp.clicks == 0) {
+          camp.clicks = r.clicks;
+        }
+        camp.orderedItems = r.orderedItems;
+        camp.orderedRevenue = r.orderedRevenue;
+        camp.shippedItems = r.shippedItems;
+        camp.returnedItems = r.returnedItems;
+        camp.totalRevenue = r.totalRevenue;
+        camp.commission = r.commission;
+        camp.bonus = r.bonus;
+        camp.isPending = false;
+        updatedCount++;
+        continue;
+      }
+    }
+    if (e.newCatalogProductId != null) {
+      final prodIdx = c.productsCatalog
+          .indexWhere((p) => p.id == e.newCatalogProductId);
+      final prod = prodIdx != -1 ? c.productsCatalog[prodIdx] : null;
+      c.campaigns.insert(
+        0,
+        CampaignLogModel(
+          seq: c.campaigns.length + 1,
+          date: r.date ?? effectiveNewDate,
+          beneficiary: prod?.beneficiary ?? '',
+          accountCode: prod?.accountCode ?? r.accountCode,
+          product: prod?.product ??
+              (r.label.isNotEmpty ? r.label : 'حملة أمازون'),
+          email: prod != null ? prod.email.split('@').first : '',
+          cost: 0.0,
+          profile: prod?.profile ?? '',
+          password: prod?.password ?? '',
+          clicks: r.clicks,
+          orderedItems: r.orderedItems,
+          orderedRevenue: r.orderedRevenue,
+          shippedItems: r.shippedItems,
+          returnedItems: r.returnedItems,
+          totalRevenue: r.totalRevenue,
+          commission: r.commission,
+          bonus: r.bonus,
+          isPending: false,
+          adUrl: prod?.adUrl ?? '',
+        ),
+      );
+      createdCount++;
+    }
+  }
+
+  if (updatedCount > 0 || createdCount > 0) {
+    await c.saveToDisk();
+  }
+  if (context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'تم لصق الأرباح بنجاح (تحديث $updatedCount حملة • إضافة $createdCount حملة جديدة) ✅',
+        ),
+      ),
+    );
+  }
+}
+
+class _AmazonEarningsTargetEntry {
+  _AmazonEarningsTargetEntry({
+    required this.row,
+    required this.selected,
+    this.targetCampaignSeq,
+    this.newCatalogProductId,
+  });
+
+  final ParsedAmazonEarningsRow row;
+  bool selected;
+  int? targetCampaignSeq;
+  int? newCatalogProductId;
+
+  String? dropdownValue(
+    List<CampaignLogModel> availableCampaigns,
+    List<ProductCatalogModel> catalog,
+  ) {
+    if (targetCampaignSeq != null &&
+        availableCampaigns.any((c) => c.seq == targetCampaignSeq)) {
+      return 'camp:$targetCampaignSeq';
+    }
+    if (newCatalogProductId != null &&
+        catalog.any((p) => p.id == newCatalogProductId)) {
+      return 'new:$newCatalogProductId';
+    }
+    if (availableCampaigns.isNotEmpty) {
+      targetCampaignSeq = availableCampaigns.first.seq;
+      newCatalogProductId = null;
+      return 'camp:$targetCampaignSeq';
+    }
+    if (catalog.isNotEmpty) {
+      targetCampaignSeq = null;
+      newCatalogProductId = catalog.first.id;
+      return 'new:$newCatalogProductId';
+    }
+    return null;
+  }
 }
 
 // ============================================================================
