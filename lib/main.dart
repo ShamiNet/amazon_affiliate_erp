@@ -17,8 +17,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' show AppExitResponse;
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'app_spreadsheet_backup.dart';
 import 'campaign_report_mapper.dart';
 import 'campaign_table_prefs.dart';
 import 'report_backend_launcher.dart';
@@ -964,7 +966,7 @@ class AppDataController extends ChangeNotifier {
         return;
       }
     } catch (_) {}
-    resetToFactoryData();
+    await resetToFactoryData();
   }
 
   void _loadFromJsonMap(Map<String, dynamic> map) {
@@ -1022,20 +1024,53 @@ class AppDataController extends ChangeNotifier {
       };
 
   Future<void> saveToDisk() async {
-    try {
-      final file = _localDbFile;
-      await file.writeAsString(
-        const JsonEncoder.withIndent('  ').convert(toFullJsonMap()),
-      );
-      lastSavedPath = file.path;
-    } catch (_) {}
+    final file = _localDbFile;
+    await file.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(toFullJsonMap()),
+    );
+    lastSavedPath = file.path;
     notifyListeners();
   }
 
-  void resetToFactoryData() {
+  Future<void> importMergedSpreadsheetData(Map<String, dynamic> data) async {
+    _loadFromJsonMap(data);
+    await saveToDisk();
+  }
+
+  Future<void> deleteCampaign(CampaignLogModel campaign) async {
+    final index = campaigns.indexOf(campaign);
+    if (index < 0) return;
+
+    campaigns.removeAt(index);
+    try {
+      await saveToDisk();
+    } catch (_) {
+      campaigns.insert(index, campaign);
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> clearAllData() async {
+    beneficiaries = [];
+    productsCatalog = [];
+    campaigns = [];
+    amazonAccounts = [];
+    historicalLinks = [];
+    emails = [];
+    gologinAccounts = [];
+    proxies = [];
+    bankAccounts = [];
+    platforms = [];
+    promoTimes = [];
+    workflowSteps = [];
+    await saveToDisk();
+  }
+
+  Future<void> resetToFactoryData() async {
     final map = jsonDecode(kInitialSeedJson) as Map<String, dynamic>;
     _loadFromJsonMap(map);
-    saveToDisk();
+    await saveToDisk();
   }
 
   void toggleTheme() {
@@ -1563,7 +1598,7 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
                                 ),
                                 const SizedBox(width: 6),
                                 IconButton(
-                                  tooltip: 'تصدير / نسخ احتياطي JSON',
+                                  tooltip: 'نسخ احتياطي واستيراد البيانات',
                                   icon: const Icon(
                                     Icons.download_rounded,
                                     size: 19,
@@ -1767,7 +1802,7 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('نسخ احتياطي / تصدير قاعدة البيانات (JSON)'),
+        title: const Text('نسخ احتياطي وإدارة ملف الشيت'),
         content: SizedBox(
           width: 620,
           child: Column(
@@ -1775,7 +1810,8 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'يتم حفظ كافة التعديلات تلقائياً على جهاز الويندوز في المسار:\n${widget.controller.lastSavedPath}',
+                'يتم حفظ التعديلات تلقائياً محلياً في المسار:\n${widget.controller.lastSavedPath}\n\n'
+                'ملف XLSX يحتوي جميع أقسام البيانات، لكن كلمات المرور وبيانات البنك الحساسة لا تُصدّر.',
                 style: const TextStyle(fontSize: 12.5),
               ),
               const SizedBox(height: 12),
@@ -1804,6 +1840,30 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
             onPressed: () => Navigator.pop(ctx),
             child: const Text('إغلاق'),
           ),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.upload_file_rounded, size: 16),
+            label: const Text('استيراد XLSX'),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _importSpreadsheet();
+            },
+          ),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.table_view_rounded, size: 16),
+            label: const Text('تصدير XLSX'),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _exportSpreadsheet();
+            },
+          ),
+          TextButton.icon(
+            icon: const Icon(Icons.delete_forever_rounded, size: 16),
+            label: const Text('تصفير جداول ERP'),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _confirmClearAllData(context);
+            },
+          ),
           FilledButton.icon(
             icon: const Icon(Icons.copy_rounded, size: 16),
             label: const Text('نسخ JSON بالكامل'),
@@ -1822,8 +1882,141 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
     );
   }
 
-  void _confirmReset(BuildContext context) {
-    showDialog(
+  Map<String, dynamic> _spreadsheetSchema() =>
+      jsonDecode(kInitialSeedJson) as Map<String, dynamic>;
+
+  Future<void> _exportSpreadsheet() async {
+    try {
+      final bytes = AppSpreadsheetBackup.encode(
+        data: widget.controller.toFullJsonMap(),
+        schema: _spreadsheetSchema(),
+      );
+      final now = DateTime.now();
+      final timestamp = '${now.year}${now.month.toString().padLeft(2, '0')}'
+          '${now.day.toString().padLeft(2, '0')}_'
+          '${now.hour.toString().padLeft(2, '0')}'
+          '${now.minute.toString().padLeft(2, '0')}';
+      final path = await FilePicker.platform.saveFile(
+        type: FileType.custom,
+        allowedExtensions: const ['xlsx'],
+        fileName: 'amazon_affiliate_erp_$timestamp.xlsx',
+        dialogTitle: 'حفظ نسخة بيانات Excel',
+      );
+      if (path == null || path.trim().isEmpty) return;
+
+      final outputPath =
+          path.toLowerCase().endsWith('.xlsx') ? path : '$path.xlsx';
+      await File(outputPath).writeAsBytes(bytes, flush: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'تم تصدير جميع أقسام البيانات إلى $outputPath. لم تُضمّن كلمات المرور أو بيانات البنك الحساسة.',
+          ),
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر تصدير ملف Excel: $error')),
+      );
+    }
+  }
+
+  Future<void> _importSpreadsheet() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['xlsx'],
+        allowMultiple: false,
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.single;
+      final bytes = file.bytes ??
+          (file.path == null ? null : await File(file.path!).readAsBytes());
+      if (bytes == null || bytes.isEmpty) {
+        throw const FormatException('تعذر قراءة ملف Excel المحدد.');
+      }
+
+      final merged = AppSpreadsheetBackup.merge(
+        bytes: bytes,
+        currentData: widget.controller.toFullJsonMap(),
+        schema: _spreadsheetSchema(),
+      );
+      if (merged.importedRows == 0) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('لم يحتوِ ملف الشيت على صفوف بيانات.')),
+        );
+        return;
+      }
+
+      await widget.controller.importMergedSpreadsheetData(merged.data);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'تم استيراد ${merged.importedRows} صف: '
+            '${merged.insertedRows} جديد و${merged.updatedRows} محدّث. '
+            'تم الحفاظ على كلمات المرور والبيانات الحساسة المحلية.',
+          ),
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر استيراد ملف الشيت: $error')),
+      );
+    }
+  }
+
+  Future<void> _confirmClearAllData(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('تصفير بيانات ERP'),
+        content: const Text(
+          'سيتم حذف جميع جداول ERP المحلية نهائيًا، بما فيها الحملات والحسابات والكتالوج وسجلات العمل، ولن تُستعاد بيانات المصنع تلقائيًا. '
+          'لن يحتوي ملف XLSX على كلمات المرور أو بيانات البنك الحساسة، ولذلك لن يمكن استعادتها منه بعد التصفير. '
+          'مفتاح Gemini الآمن وتفضيلات العرض لا يتأثران. صدّر ملف XLSX أولاً إذا أردت الاحتفاظ ببقية البيانات. هل تريد المتابعة؟',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(dialogContext).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('تصفير نهائي'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      await widget.controller.clearAllData();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم تصفير جميع البيانات المحلية.')),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر تصفير البيانات وحفظ التغيير: $error')),
+      );
+    }
+  }
+
+  Future<void> _confirmReset(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('استعادة البيانات الأصلية'),
@@ -1832,24 +2025,29 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () => Navigator.pop(ctx, false),
             child: const Text('إلغاء'),
           ),
           FilledButton(
-            onPressed: () {
-              widget.controller.resetToFactoryData();
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('تمت استعادة البيانات الأصلية بنجاح ✅'),
-                ),
-              );
-            },
+            onPressed: () => Navigator.pop(ctx, true),
             child: const Text('تأكيد الاستعادة'),
           ),
         ],
       ),
     );
+    if (confirmed != true || !context.mounted) return;
+    try {
+      await widget.controller.resetToFactoryData();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تمت استعادة البيانات الأصلية بنجاح ✅')),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذرت استعادة بيانات المصنع: $error')),
+      );
+    }
   }
 }
 
@@ -2814,9 +3012,9 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
   DataColumn _sortableColumn(int col) {
     final active = _prefs.columnFilters.containsKey(col);
     return DataColumn(
-      onSort: (index, asc) {
+      onSort: (_, asc) {
         setState(() {
-          _prefs.sortColumn = index;
+          _prefs.sortColumn = col;
           _prefs.ascending = asc;
         });
         _persist();
@@ -2881,7 +3079,8 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
     final sortCol = _prefs.sortColumn;
     if (sortCol != null && sortCol < _columnLabels.length) {
       filtered.sort((a, b) {
-        final r = _compareValues(_sortValue(a, sortCol), _sortValue(b, sortCol));
+        final r =
+            _compareValues(_sortValue(a, sortCol), _sortValue(b, sortCol));
         return _prefs.ascending ? r : -r;
       });
     }
@@ -3019,9 +3218,11 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
           dataRowMinHeight: 46,
           dataRowMaxHeight: 54,
           columnSpacing: 18,
-          sortColumnIndex: _prefs.sortColumn,
+          sortColumnIndex:
+              _prefs.sortColumn == null ? null : _prefs.sortColumn! + 1,
           sortAscending: _prefs.ascending,
           columns: [
+            const DataColumn(label: Text('حذف')),
             for (var i = 0; i < _columnLabels.length; i++) _sortableColumn(i),
             const DataColumn(label: Text('إجراءات')),
           ],
@@ -3030,6 +3231,17 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
             final roi = camp.roi;
             return DataRow(
               cells: [
+                DataCell(
+                  IconButton(
+                    tooltip: 'حذف السطر #${camp.seq}',
+                    icon: const Icon(
+                      Icons.delete_outline_rounded,
+                      size: 19,
+                      color: Color(0xFFF43F5E),
+                    ),
+                    onPressed: () => _confirmDeleteCampaign(camp),
+                  ),
+                ),
                 DataCell(Text('${camp.seq}')),
                 DataCell(
                   Text(
@@ -3128,8 +3340,7 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                             _pasteAmazonEarningsIntoCampaignRow(context, camp),
                       ),
                       IconButton(
-                        tooltip:
-                            'نسخ صف أرباح هذه الحملة (مهيأ للصق في الشيت)',
+                        tooltip: 'نسخ صف أرباح هذه الحملة (مهيأ للصق في الشيت)',
                         icon: const Icon(
                           Icons.table_rows_outlined,
                           size: 18,
@@ -3143,18 +3354,6 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                         onPressed: () => _showAddOrEditCampaignDialog(context,
                             existing: camp),
                       ),
-                      IconButton(
-                        tooltip: 'حذف الحملة',
-                        icon: const Icon(
-                          Icons.delete_outline_rounded,
-                          size: 18,
-                          color: Color(0xFFF43F5E),
-                        ),
-                        onPressed: () {
-                          widget.controller.campaigns.remove(camp);
-                          widget.controller.saveToDisk();
-                        },
-                      ),
                     ],
                   ),
                 ),
@@ -3164,6 +3363,46 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDeleteCampaign(CampaignLogModel campaign) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('حذف سطر الحملة'),
+        content: Text(
+          'هل تريد حذف السطر #${campaign.seq}؟\n'
+          '${campaign.date} • ${campaign.accountCode} • ${campaign.product}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(dialogContext).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('حذف السطر'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await widget.controller.deleteCampaign(campaign);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تم حذف السطر #${campaign.seq}.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر حذف السطر وحفظ التغيير: $error')),
+      );
+    }
   }
 
   Widget _buildDailyGroupedTable(List<CampaignLogModel> list) {
@@ -3850,8 +4089,10 @@ Future<void> showCampaignImportDialog(
                 for (final e in entries)
                   CheckboxListTile(
                     value: e.selected,
-                    onChanged: (v) => setModalState(() => e.selected = v ?? false),
-                    title: Text('$statsDate • ${e.accountCode} • ${e.productName}'),
+                    onChanged: (v) =>
+                        setModalState(() => e.selected = v ?? false),
+                    title: Text(
+                        '$statsDate • ${e.accountCode} • ${e.productName}'),
                     subtitle: Text(
                       'التكلفة: \$${e.row.cost.toStringAsFixed(3)} • النقرات: ${e.row.clicks}'
                       '${isDuplicate(e) ? ' • ⚠️ موجودة مسبقًا لهذا التاريخ' : ''}'
@@ -4070,15 +4311,17 @@ Future<void> showAmazonEarningsImportDialog(
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setModalState) {
         final availableCampaigns = filteredCampaignsForDate(selectedDateFilter);
-        final effectiveNewDate =
-            selectedDateFilter == 'الكل' ? fallbackYesterday : selectedDateFilter;
+        final effectiveNewDate = selectedDateFilter == 'الكل'
+            ? fallbackYesterday
+            : selectedDateFilter;
 
         return Directionality(
           textDirection: TextDirection.rtl,
           child: AlertDialog(
             title: const Row(
               children: [
-                Icon(Icons.assignment_returned_rounded, color: Color(0xFF10B981)),
+                Icon(Icons.assignment_returned_rounded,
+                    color: Color(0xFF10B981)),
                 SizedBox(width: 10),
                 Expanded(
                   child: Text(
@@ -4112,9 +4355,10 @@ Future<void> showAmazonEarningsImportDialog(
                                   style: TextStyle(fontWeight: FontWeight.bold),
                                 ),
                                 DropdownButton<String>(
-                                  value: existingDates.contains(selectedDateFilter)
-                                      ? selectedDateFilter
-                                      : 'الكل',
+                                  value:
+                                      existingDates.contains(selectedDateFilter)
+                                          ? selectedDateFilter
+                                          : 'الكل',
                                   items: [
                                     const DropdownMenuItem(
                                       value: 'الكل',
@@ -4157,7 +4401,8 @@ Future<void> showAmazonEarningsImportDialog(
                                           '${picked.year}-${picked.month.toString().padLeft(2, '0')}-'
                                           '${picked.day.toString().padLeft(2, '0')}';
                                       setModalState(() {
-                                        if (!existingDates.contains(formatted)) {
+                                        if (!existingDates
+                                            .contains(formatted)) {
                                           existingDates.insert(0, formatted);
                                         }
                                         selectedDateFilter = formatted;
@@ -4410,8 +4655,8 @@ Future<void> showAmazonEarningsImportDialog(
       }
     }
     if (e.newCatalogProductId != null) {
-      final prodIdx = c.productsCatalog
-          .indexWhere((p) => p.id == e.newCatalogProductId);
+      final prodIdx =
+          c.productsCatalog.indexWhere((p) => p.id == e.newCatalogProductId);
       final prod = prodIdx != -1 ? c.productsCatalog[prodIdx] : null;
       c.campaigns.insert(
         0,
@@ -4420,8 +4665,8 @@ Future<void> showAmazonEarningsImportDialog(
           date: r.date ?? effectiveNewDate,
           beneficiary: prod?.beneficiary ?? '',
           accountCode: prod?.accountCode ?? r.accountCode,
-          product: prod?.product ??
-              (r.label.isNotEmpty ? r.label : 'حملة أمازون'),
+          product:
+              prod?.product ?? (r.label.isNotEmpty ? r.label : 'حملة أمازون'),
           email: prod != null ? prod.email.split('@').first : '',
           cost: 0.0,
           profile: prod?.profile ?? '',
