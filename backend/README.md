@@ -1,67 +1,75 @@
-# Local Gemini report extractor
+# Local report OCR
 
-The Flutter app sends an explicitly selected screenshot to this local service.
-It does not sign in to Amazon or send anything to Amazon. The service binds to
-`127.0.0.1` only and calls the Gemini Interactions API. API keys are stored
-encrypted by the Flutter app's secure-storage plugin on this Windows device.
-The currently selected key is sent to the local extractor only when an
-approved extraction request is made; the extractor does not persist it.
+The Flutter app sends a screenshot to this local service, which reads the
+visible table with PaddleOCR when its optional local runtime is installed, and
+otherwise uses bundled Tesseract OCR. Results are drafts for the existing
+review, spreadsheet export, and import workflow. The service does not call an
+AI API, access Amazon, or upload screenshots.
 
 ## Requirements
 
 - Python 3.10 or newer
-- Network access to `generativelanguage.googleapis.com`
+- The Windows installer bundles Tesseract OCR and Arabic (`ara`) and English
+  (`eng`) language data under `backend\ocr_runtime`.
+- Optional higher-accuracy OCR: 64-bit Python 3.12 and internet access for
+  installation and initial model download. PaddleOCR inference runs locally.
+
+For a source checkout, install Tesseract with Arabic and English data, then set
+`TESSERACT_CMD` to the full path of `tesseract.exe`. Set
+`TESSERACT_TESSDATA_DIR` to the folder containing both language files if they
+are not in Tesseract's default data directory.
+
+To enable PaddleOCR on Windows, install 64-bit Python 3.12 with the Python
+Launcher, then run this once from the `backend` folder:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\setup_paddle_ocr.ps1
+```
+
+This installs PaddleOCR and PaddlePaddle into a per-user environment at
+`%LOCALAPPDATA%\AmazonAffiliateERP\paddle-ocr`, avoiding changes to the system
+Python, then downloads the English and Arabic model files. Setup needs internet
+access; screenshots are processed locally and are not sent to Paddle. Once
+setup completes, inference can run offline.
 
 ## Run on Windows
 
-From PowerShell:
+Start the service from this folder:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\backend\run_report_extractor.ps1
 ```
 
-Keep this terminal open while using the app. Add one or more Gemini API keys in
-the app's report-image screen, then choose the key to use. To stop the local
-service, press `Ctrl+C`.
+Keep the terminal open while using the app. The page status reports which OCR
+engine is active. To stop the local service, press `Ctrl+C`.
 
-If you edit or update the extractor, stop its running process with `Ctrl+C`
-and run the script again. A running Python process does not load source changes
-automatically.
+When the Flutter app is launched normally, it also tries to start this backend
+automatically. If the OCR page still shows "service not connected", read the
+status details in the page and ensure Python 3.10+ is installed and reachable
+from `PATH`.
 
-The app connects only to `http://127.0.0.1:8765`. This implementation is
-intentionally local-only; do not expose it as a public or remote service.
+For an extraction that closes its connection unexpectedly, restart the app so
+the updated backend starts, retry once, then inspect
+`%LOCALAPPDATA%\AmazonAffiliateERP\logs\report_extractor.log`. The log records
+request size, duration, and errors only; screenshot contents are never logged.
 
-## Privacy and limits
+If you edit or update the OCR service, stop its running process with `Ctrl+C`
+and run the script again. The app connects only to
+`http://127.0.0.1:8765`; keep it bound to loopback and do not expose port 8765
+to the network.
 
-- The app asks for consent each time a screenshot is selected.
-- Images are sent only to this local service and then to Gemini for extraction.
-- The service accepts PNG, JPEG, or WEBP images up to 10 MB.
-- The service does not write request bodies, images, API keys, or Gemini
-  responses to disk or logs.
-- The local service accepts the API key only in the extraction request header.
-  It does not return the key from its health endpoint or persist it.
-- The local service is not an internet-facing backend. Do not bind it to a
-  public interface or expose port 8765 to the network.
-- The app does not implement remote-service authentication. Do not change its
-  local endpoint to a public URL without first adding and reviewing an
-  authentication design.
-- The extracted table is only a draft. Review it before copying into a sheet.
+## Accuracy and privacy
 
-## Location errors and exposed keys
-
-If the service reports `User location is not supported for the API`, Google is
-rejecting the request based on the connection's location, not the API key.
-Check Google's [official Gemini API supported regions](https://ai.google.dev/gemini-api/docs/available-regions).
-If you are in a supported region, check whether your normal network is routed
-through a VPN, proxy, or gateway in another region. Do not use routing to
-circumvent Google's regional restrictions. Google documents Gemini API in
-Gemini Enterprise Agent Platform as an option to investigate for unsupported
-regions, subject to its own availability and requirements.
-
-If an API key appears in a screenshot, chat, or log, revoke it in Google AI
-Studio and create a replacement. Add the replacement using the app's secure
-key manager; do not put it in source code or share it.
-
-Gemini API pricing, model availability, and terms can change; check the
-current Google AI documentation and account billing before use.
+- No API key or cloud service is used for OCR.
+- Tesseract does not need internet access. PaddleOCR needs internet only for
+  setup and the initial model downloads.
+- The service accepts PNG, JPEG, or WEBP screenshots up to 10 MB.
+- Image bytes are processed in memory and are not written to disk or logged.
+- OCR may misread small, blurred, or low-contrast text. Review and correct the
+  draft table before copying it to a sheet or importing it into the ERP.
+- If the table is not detected, select a clearer image that includes the
+  table headings, or crop the screenshot to the table before pasting it.
+- The local service is not an internet-facing backend. Do not expose it as a
+  public or remote service.

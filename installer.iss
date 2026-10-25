@@ -1,7 +1,7 @@
 [Setup]
 AppId={{7B1E3F52-4C0A-4E8B-9D55-3A2C6E1F8A10}
 AppName=Amazon Affiliate ERP
-AppVersion=1.0.2
+AppVersion=1.0.3
 AppPublisher=ShamiNet
 DefaultDirName={autopf}\Amazon Affiliate ERP
 DefaultGroupName=Amazon Affiliate ERP
@@ -20,6 +20,9 @@ UninstallDisplayIcon={app}\amazon_affiliate_erp.exe
 Source: "build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "backend\report_extractor.py"; DestDir: "{app}\backend"; Flags: ignoreversion
 Source: "backend\run_report_extractor.ps1"; DestDir: "{app}\backend"; Flags: ignoreversion
+Source: "backend\setup_paddle_ocr.ps1"; DestDir: "{app}\backend"; Flags: ignoreversion
+Source: "backend\requirements-paddle.txt"; DestDir: "{app}\backend"; Flags: ignoreversion
+Source: "backend\ocr_runtime\*"; DestDir: "{app}\backend\ocr_runtime"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "windows\runner\resources\app_icon.ico"; DestDir: "{app}"; DestName: "app_icon.ico"; Flags: ignoreversion
 
 [Icons]

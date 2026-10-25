@@ -23,12 +23,14 @@ import 'package:flutter/services.dart';
 import 'app_spreadsheet_backup.dart';
 import 'campaign_report_mapper.dart';
 import 'campaign_table_prefs.dart';
+import 'ai_section_advisor_dialog.dart';
+import 'gemini_advisor_service.dart';
 import 'report_backend_launcher.dart';
 import 'report_image_import_screen.dart';
+import 'app_table_scroll_wrapper.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  unawaited(ReportBackendLauncher.instance.start());
   AppLifecycleListener(
     onExitRequested: () async {
       ReportBackendLauncher.instance.stop();
@@ -1279,6 +1281,80 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
   int _selectedIndex = 0;
   bool? _sidebarExpansionOverride;
 
+  ErpSection _getCurrentErpSection(int index) {
+    switch (index) {
+      case 0:
+        return ErpSection.dashboard;
+      case 1:
+        return ErpSection.campaigns;
+      case 2:
+        return ErpSection.catalog;
+      case 3:
+        return ErpSection.amazonAccounts;
+      case 4:
+      case 5:
+        return ErpSection.emailsAndGoLogin;
+      case 6:
+      case 7:
+        return ErpSection.proxiesAndBanks;
+      case 8:
+        return ErpSection.platformsAndTiming;
+      default:
+        return ErpSection.workflowSteps;
+    }
+  }
+
+  Map<String, dynamic> _buildContextForSection(
+    ErpSection section,
+    AppDataController c,
+  ) {
+    switch (section) {
+      case ErpSection.dashboard:
+        return {
+          'totalCapital': c.totalSubscribedCapital,
+          'totalSpent': c.totalCampaignSpend,
+          'remainingLiquidity': c.totalRemainingLiquidity,
+          'grossEarnings': c.totalGrossEarnings,
+          'netProfit': c.totalNetProfit,
+          'overallRoi': c.overallRoi,
+          'beneficiaries':
+              c.beneficiaries.map((b) => c.getBeneficiaryMetrics(b)).toList(),
+        };
+      case ErpSection.campaigns:
+        return {
+          'recentCampaigns': c.campaigns
+              .take(15)
+              .map((camp) => {
+                    'date': camp.date,
+                    'product': camp.product,
+                    'account': camp.accountCode,
+                    'cost': camp.cost,
+                    'clicks': camp.clicks,
+                    'orders': camp.orderedItems,
+                    'earnings': camp.totalEarnings,
+                    'netProfit': camp.netProfit,
+                    'roi': camp.roi,
+                  })
+              .toList(),
+        };
+      case ErpSection.amazonAccounts:
+        return {
+          'activeCount': c.activeAmazonCount,
+          'bannedCount': c.bannedAmazonCount,
+          'accounts': c.amazonAccounts
+              .map((a) => {
+                    'code': a.code,
+                    'status': a.status,
+                    'product1': a.product1,
+                    'promo1': a.promoStatus1,
+                  })
+              .toList(),
+        };
+      default:
+        return c.toFullJsonMap();
+    }
+  }
+
   late final List<NavItemSpec> _navItems = [
     NavItemSpec(
       title: 'التقرير التنفيذي الشامل',
@@ -1352,10 +1428,10 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
     ),
     NavItemSpec(
       title: 'استخراج بيانات التقارير',
-      subtitle: 'تحليل صور الأرباح والحملات ونسخها للشيت',
+      subtitle: 'قراءة صور الأرباح والحملات محلياً ونسخها للشيت',
       icon: Icons.document_scanner_rounded,
       accent: const Color(0xFF38BDF8),
-      badgeBuilder: (c) => 'Gemini',
+      badgeBuilder: (c) => 'OCR',
     ),
   ];
 
@@ -1759,6 +1835,14 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
             value: '${(c.overallRoi * 100).toStringAsFixed(1)}%',
             color: const Color(0xFFA855F7),
           ),
+          AiSectionAdvisorButton(
+            section: _getCurrentErpSection(_selectedIndex),
+            sectionTitle: currentNav.title,
+            contextData: _buildContextForSection(
+              _getCurrentErpSection(_selectedIndex),
+              c,
+            ),
+          ),
         ],
       ),
     );
@@ -1982,7 +2066,7 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
         content: const Text(
           'سيتم حذف جميع جداول ERP المحلية نهائيًا، بما فيها الحملات والحسابات والكتالوج وسجلات العمل، ولن تُستعاد بيانات المصنع تلقائيًا. '
           'لن يحتوي ملف XLSX على كلمات المرور أو بيانات البنك الحساسة، ولذلك لن يمكن استعادتها منه بعد التصفير. '
-          'مفتاح Gemini الآمن وتفضيلات العرض لا يتأثران. صدّر ملف XLSX أولاً إذا أردت الاحتفاظ ببقية البيانات. هل تريد المتابعة؟',
+          'تفضيلات العرض لا تتأثر. صدّر ملف XLSX أولاً إذا أردت الاحتفاظ ببقية البيانات. هل تريد المتابعة؟',
         ),
         actions: [
           TextButton(
@@ -2409,8 +2493,8 @@ class ExecutiveDashboardScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
+                  AppTableScrollWrapper(
+                    tableTitle: 'ملخص المستفيدين',
                     child: DataTable(
                       headingRowHeight: 44,
                       dataRowMinHeight: 44,
@@ -3198,9 +3282,15 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
           // الجدول التفصيلي أو الجدول اليومي المجمع
           Expanded(
             child: Card(
-              child: _showDailySummaryView
-                  ? _buildDailyGroupedTable(filtered)
-                  : _buildDetailedCampaignsTable(filtered),
+              clipBehavior: Clip.antiAlias,
+              child: AppTableScrollWrapper(
+                tableTitle: _showDailySummaryView
+                    ? 'ملخص الأرباح اليومية المجمّعة'
+                    : 'سجل الحملات التفصيلي ومؤشرات الأداء',
+                child: _showDailySummaryView
+                    ? _buildDailyGroupedTable(filtered)
+                    : _buildDetailedCampaignsTable(filtered),
+              ),
             ),
           ),
         ],
@@ -3209,159 +3299,152 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
   }
 
   Widget _buildDetailedCampaignsTable(List<CampaignLogModel> list) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.vertical,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          headingRowHeight: 46,
-          dataRowMinHeight: 46,
-          dataRowMaxHeight: 54,
-          columnSpacing: 18,
-          sortColumnIndex:
-              _prefs.sortColumn == null ? null : _prefs.sortColumn! + 1,
-          sortAscending: _prefs.ascending,
-          columns: [
-            const DataColumn(label: Text('حذف')),
-            for (var i = 0; i < _columnLabels.length; i++) _sortableColumn(i),
-            const DataColumn(label: Text('إجراءات')),
-          ],
-          rows: list.map((camp) {
-            final net = camp.netProfit;
-            final roi = camp.roi;
-            return DataRow(
-              cells: [
-                DataCell(
+    return DataTable(
+      headingRowHeight: 46,
+      dataRowMinHeight: 46,
+      dataRowMaxHeight: 54,
+      columnSpacing: 18,
+      sortColumnIndex:
+          _prefs.sortColumn == null ? null : _prefs.sortColumn! + 1,
+      sortAscending: _prefs.ascending,
+      columns: [
+        const DataColumn(label: Text('حذف')),
+        for (var i = 0; i < _columnLabels.length; i++) _sortableColumn(i),
+        const DataColumn(label: Text('إجراءات')),
+      ],
+      rows: list.map((camp) {
+        final net = camp.netProfit;
+        final roi = camp.roi;
+        return DataRow(
+          cells: [
+            DataCell(
+              IconButton(
+                tooltip: 'حذف السطر #${camp.seq}',
+                icon: const Icon(
+                  Icons.delete_outline_rounded,
+                  size: 19,
+                  color: Color(0xFFF43F5E),
+                ),
+                onPressed: () => _confirmDeleteCampaign(camp),
+              ),
+            ),
+            DataCell(Text('${camp.seq}')),
+            DataCell(
+              Text(
+                camp.date,
+                style: const TextStyle(fontFamily: 'Consolas'),
+              ),
+            ),
+            DataCell(
+              Text(
+                camp.beneficiary,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            DataCell(buildStatusBadge(camp.accountCode)),
+            DataCell(
+              Text(
+                camp.product,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            DataCell(Text(camp.profile)),
+            DataCell(
+              InkWell(
+                onTap: () => copyToClipboard(context, camp.email, 'الإيميل'),
+                child: Text(
+                  camp.email,
+                  style: const TextStyle(fontFamily: 'Consolas'),
+                ),
+              ),
+            ),
+            DataCell(Text('\$${camp.cost.toStringAsFixed(3)}')),
+            DataCell(Text('${camp.clicks}')),
+            DataCell(Text('${camp.orderedItems}')),
+            DataCell(
+              Text('${(camp.conversionRate * 100).toStringAsFixed(1)}%'),
+            ),
+            DataCell(Text('${camp.shippedItems}')),
+            DataCell(Text('\$${camp.totalRevenue.toStringAsFixed(2)}')),
+            DataCell(Text('\$${camp.commission.toStringAsFixed(2)}')),
+            DataCell(Text('\$${camp.bonus.toStringAsFixed(2)}')),
+            DataCell(
+              Text(
+                camp.isPending
+                    ? 'قيد التشغيل'
+                    : '\$${camp.totalEarnings.toStringAsFixed(2)}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            DataCell(
+              Text(
+                camp.isPending ? '-' : '\$${net.toStringAsFixed(3)}',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: net > 0
+                      ? const Color(0xFF10B981)
+                      : (net < 0 ? const Color(0xFFF43F5E) : Colors.grey),
+                ),
+              ),
+            ),
+            DataCell(
+              Text(
+                roi == null ? '-' : '${(roi * 100).toStringAsFixed(1)}%',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: (roi ?? 0) >= 0
+                      ? const Color(0xFF38BDF8)
+                      : const Color(0xFFF43F5E),
+                ),
+              ),
+            ),
+            DataCell(buildStatusBadge(camp.smartRecommendation)),
+            DataCell(
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (camp.adUrl.isNotEmpty)
+                    IconButton(
+                      tooltip: 'نسخ رابط الإعلان: ${camp.adUrl}',
+                      icon: const Icon(Icons.link_rounded, size: 18),
+                      onPressed: () => copyToClipboard(
+                        context,
+                        camp.adUrl,
+                        'رابط الإعلان',
+                      ),
+                    ),
                   IconButton(
-                    tooltip: 'حذف السطر #${camp.seq}',
+                    tooltip:
+                        'لصق أرباح أمازون من الحافظة مباشرة في هذه الحملة (#${camp.seq})',
                     icon: const Icon(
-                      Icons.delete_outline_rounded,
-                      size: 19,
-                      color: Color(0xFFF43F5E),
+                      Icons.content_paste_go_rounded,
+                      size: 18,
+                      color: Color(0xFF10B981),
                     ),
-                    onPressed: () => _confirmDeleteCampaign(camp),
+                    onPressed: () =>
+                        _pasteAmazonEarningsIntoCampaignRow(context, camp),
                   ),
-                ),
-                DataCell(Text('${camp.seq}')),
-                DataCell(
-                  Text(
-                    camp.date,
-                    style: const TextStyle(fontFamily: 'Consolas'),
-                  ),
-                ),
-                DataCell(
-                  Text(
-                    camp.beneficiary,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-                DataCell(buildStatusBadge(camp.accountCode)),
-                DataCell(
-                  Text(
-                    camp.product,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
-                DataCell(Text(camp.profile)),
-                DataCell(
-                  InkWell(
-                    onTap: () =>
-                        copyToClipboard(context, camp.email, 'الإيميل'),
-                    child: Text(
-                      camp.email,
-                      style: const TextStyle(fontFamily: 'Consolas'),
+                  IconButton(
+                    tooltip: 'نسخ صف أرباح هذه الحملة (مهيأ للصق في الشيت)',
+                    icon: const Icon(
+                      Icons.table_rows_outlined,
+                      size: 18,
                     ),
+                    onPressed: () =>
+                        _copyCampaignEarningsForSheet(context, camp),
                   ),
-                ),
-                DataCell(Text('\$${camp.cost.toStringAsFixed(3)}')),
-                DataCell(Text('${camp.clicks}')),
-                DataCell(Text('${camp.orderedItems}')),
-                DataCell(
-                  Text('${(camp.conversionRate * 100).toStringAsFixed(1)}%'),
-                ),
-                DataCell(Text('${camp.shippedItems}')),
-                DataCell(Text('\$${camp.totalRevenue.toStringAsFixed(2)}')),
-                DataCell(Text('\$${camp.commission.toStringAsFixed(2)}')),
-                DataCell(Text('\$${camp.bonus.toStringAsFixed(2)}')),
-                DataCell(
-                  Text(
-                    camp.isPending
-                        ? 'قيد التشغيل'
-                        : '\$${camp.totalEarnings.toStringAsFixed(2)}',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  IconButton(
+                    tooltip: 'تعديل الحملة',
+                    icon: const Icon(Icons.edit_outlined, size: 18),
+                    onPressed: () =>
+                        _showAddOrEditCampaignDialog(context, existing: camp),
                   ),
-                ),
-                DataCell(
-                  Text(
-                    camp.isPending ? '-' : '\$${net.toStringAsFixed(3)}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: net > 0
-                          ? const Color(0xFF10B981)
-                          : (net < 0 ? const Color(0xFFF43F5E) : Colors.grey),
-                    ),
-                  ),
-                ),
-                DataCell(
-                  Text(
-                    roi == null ? '-' : '${(roi * 100).toStringAsFixed(1)}%',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: (roi ?? 0) >= 0
-                          ? const Color(0xFF38BDF8)
-                          : const Color(0xFFF43F5E),
-                    ),
-                  ),
-                ),
-                DataCell(buildStatusBadge(camp.smartRecommendation)),
-                DataCell(
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (camp.adUrl.isNotEmpty)
-                        IconButton(
-                          tooltip: 'نسخ رابط الإعلان: ${camp.adUrl}',
-                          icon: const Icon(Icons.link_rounded, size: 18),
-                          onPressed: () => copyToClipboard(
-                            context,
-                            camp.adUrl,
-                            'رابط الإعلان',
-                          ),
-                        ),
-                      IconButton(
-                        tooltip:
-                            'لصق أرباح أمازون من الحافظة مباشرة في هذه الحملة (#${camp.seq})',
-                        icon: const Icon(
-                          Icons.content_paste_go_rounded,
-                          size: 18,
-                          color: Color(0xFF10B981),
-                        ),
-                        onPressed: () =>
-                            _pasteAmazonEarningsIntoCampaignRow(context, camp),
-                      ),
-                      IconButton(
-                        tooltip: 'نسخ صف أرباح هذه الحملة (مهيأ للصق في الشيت)',
-                        icon: const Icon(
-                          Icons.table_rows_outlined,
-                          size: 18,
-                        ),
-                        onPressed: () =>
-                            _copyCampaignEarningsForSheet(context, camp),
-                      ),
-                      IconButton(
-                        tooltip: 'تعديل الحملة',
-                        icon: const Icon(Icons.edit_outlined, size: 18),
-                        onPressed: () => _showAddOrEditCampaignDialog(context,
-                            existing: camp),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          }).toList(),
-        ),
-      ),
+                ],
+              ),
+            ),
+          ],
+        );
+      }).toList(),
     );
   }
 
@@ -3412,78 +3495,73 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
     }
     final sortedDates = byDate.keys.toList()..sort();
 
-    return SingleChildScrollView(
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          columns: const [
-            DataColumn(label: Text('التاريخ')),
-            DataColumn(label: Text('عدد الحملات')),
-            DataColumn(label: Text('إجمالي النقرات')),
-            DataColumn(label: Text('إجمالي الطلبات')),
-            DataColumn(label: Text('إجمالي تكلفة الحملات اليومية')),
-            DataColumn(label: Text('إجمالي الأرباح اليومية')),
-            DataColumn(label: Text('صافي الربح اليومي')),
-            DataColumn(label: Text('نسبة العائد اليومي %')),
-            DataColumn(label: Text('التقييم اليومي')),
-          ],
-          rows: sortedDates.map((d) {
-            final items = byDate[d]!;
-            final cost = items.fold(0.0, (s, x) => s + x.cost);
-            final earn = items.fold(0.0, (s, x) => s + x.totalEarnings);
-            final net = earn - cost;
-            final roi = cost > 0 ? net / cost : 0.0;
-            final clicks = items.fold(0, (s, x) => s + x.clicks);
-            final orders = items.fold(0, (s, x) => s + x.orderedItems);
+    return DataTable(
+      columns: const [
+        DataColumn(label: Text('التاريخ')),
+        DataColumn(label: Text('عدد الحملات')),
+        DataColumn(label: Text('إجمالي النقرات')),
+        DataColumn(label: Text('إجمالي الطلبات')),
+        DataColumn(label: Text('إجمالي تكلفة الحملات اليومية')),
+        DataColumn(label: Text('إجمالي الأرباح اليومية')),
+        DataColumn(label: Text('صافي الربح اليومي')),
+        DataColumn(label: Text('نسبة العائد اليومي %')),
+        DataColumn(label: Text('التقييم اليومي')),
+      ],
+      rows: sortedDates.map((d) {
+        final items = byDate[d]!;
+        final cost = items.fold(0.0, (s, x) => s + x.cost);
+        final earn = items.fold(0.0, (s, x) => s + x.totalEarnings);
+        final net = earn - cost;
+        final roi = cost > 0 ? net / cost : 0.0;
+        final clicks = items.fold(0, (s, x) => s + x.clicks);
+        final orders = items.fold(0, (s, x) => s + x.orderedItems);
 
-            return DataRow(
-              cells: [
-                DataCell(
-                  Text(
-                    d,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'Consolas',
-                    ),
-                  ),
+        return DataRow(
+          cells: [
+            DataCell(
+              Text(
+                d,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Consolas',
                 ),
-                DataCell(Text('${items.length} حملات')),
-                DataCell(Text('$clicks')),
-                DataCell(Text('$orders')),
-                DataCell(Text('\$${cost.toStringAsFixed(3)}')),
-                DataCell(
-                  Text(
-                    '\$${earn.toStringAsFixed(2)}',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
+              ),
+            ),
+            DataCell(Text('${items.length} حملات')),
+            DataCell(Text('$clicks')),
+            DataCell(Text('$orders')),
+            DataCell(Text('\$${cost.toStringAsFixed(3)}')),
+            DataCell(
+              Text(
+                '\$${earn.toStringAsFixed(2)}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            DataCell(
+              Text(
+                '\$${net.toStringAsFixed(3)}',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: net >= 0
+                      ? const Color(0xFF10B981)
+                      : const Color(0xFFF43F5E),
                 ),
-                DataCell(
-                  Text(
-                    '\$${net.toStringAsFixed(3)}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: net >= 0
-                          ? const Color(0xFF10B981)
-                          : const Color(0xFFF43F5E),
-                    ),
-                  ),
-                ),
-                DataCell(
-                  Text(
-                    cost > 0 ? '${(roi * 100).toStringAsFixed(1)}%' : '-',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-                DataCell(
-                  buildStatusBadge(
-                    net > 0 ? '🚀 يوم رابح وممتاز' : '🛑 خسارة يومية',
-                  ),
-                ),
-              ],
-            );
-          }).toList(),
-        ),
-      ),
+              ),
+            ),
+            DataCell(
+              Text(
+                cost > 0 ? '${(roi * 100).toStringAsFixed(1)}%' : '-',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            DataCell(
+              buildStatusBadge(
+                net > 0 ? '🚀 يوم رابح وممتاز' : '🛑 خسارة يومية',
+              ),
+            ),
+          ],
+        );
+      }).toList(),
     );
   }
 
@@ -4286,7 +4364,7 @@ Future<void> showAmazonEarningsImportDialog(
       result.add(
         _AmazonEarningsTargetEntry(
           row: r,
-          selected: true,
+          selected: _earningsRowHasData(r),
           targetCampaignSeq: matched?.seq,
           newCatalogProductId: matched == null && c.productsCatalog.isNotEmpty
               ? c.productsCatalog.first.id
@@ -4551,6 +4629,15 @@ Future<void> showAmazonEarningsImportDialog(
                                   ],
                                 ),
                               ),
+                              const SizedBox(height: 8),
+                              _EarningsInsightsPanel(
+                                insights: _earningsInsights(
+                                  entries[i],
+                                  entries,
+                                  c.campaigns,
+                                  overwriteClicksEvenIfZero,
+                                ),
+                              ),
                               const SizedBox(height: 10),
                               DropdownButtonFormField<String>(
                                 value: entries[i].dropdownValue(
@@ -4604,6 +4691,11 @@ Future<void> showAmazonEarningsImportDialog(
                           ),
                         ),
                       ),
+                    _EarningsBatchSummary(
+                      entries: entries,
+                      campaigns: c.campaigns,
+                      overwriteClicks: overwriteClicksEvenIfZero,
+                    ),
                   ],
                 ),
               ),
@@ -4615,8 +4707,12 @@ Future<void> showAmazonEarningsImportDialog(
               ),
               FilledButton.icon(
                 icon: const Icon(Icons.check_circle_outline_rounded),
-                label: const Text('لصق وحفظ في الأرباح اليومية'),
-                onPressed: () => Navigator.pop(ctx, true),
+                label: Text(
+                  'لصق وحفظ (${entries.where((e) => e.selected).length})',
+                ),
+                onPressed: _earningsHasBlockingIssue(entries)
+                    ? null
+                    : () => Navigator.pop(ctx, true),
               ),
             ],
           ),
@@ -4695,6 +4791,235 @@ Future<void> showAmazonEarningsImportDialog(
       SnackBar(
         content: Text(
           'تم لصق الأرباح بنجاح (تحديث $updatedCount حملة • إضافة $createdCount حملة جديدة) ✅',
+        ),
+      ),
+    );
+  }
+}
+
+bool _earningsRowHasData(ParsedAmazonEarningsRow r) =>
+    r.clicks > 0 ||
+    r.orderedItems > 0 ||
+    r.shippedItems > 0 ||
+    r.totalRevenue > 0 ||
+    r.commission > 0 ||
+    r.bonus > 0;
+
+// 0 = معلومة، 1 = تحذير، 2 = حرج
+class _EarningsInsight {
+  const _EarningsInsight(this.level, this.text);
+  final int level;
+  final String text;
+}
+
+CampaignLogModel? _targetCampaignOf(
+  _AmazonEarningsTargetEntry e,
+  List<CampaignLogModel> campaigns,
+) {
+  if (e.targetCampaignSeq == null) return null;
+  for (final c in campaigns) {
+    if (c.seq == e.targetCampaignSeq) return c;
+  }
+  return null;
+}
+
+List<_EarningsInsight> _earningsInsights(
+  _AmazonEarningsTargetEntry e,
+  List<_AmazonEarningsTargetEntry> all,
+  List<CampaignLogModel> campaigns,
+  bool overwriteClicks,
+) {
+  final r = e.row;
+  final out = <_EarningsInsight>[];
+
+  if (!_earningsRowHasData(r)) {
+    out.add(const _EarningsInsight(
+        1, 'كل القيم صفر: غالباً لم تُقرأ الصورة جيداً أو لا توجد مبيعات.'));
+  }
+
+  final cr = r.conversionRate * 100;
+  if (r.clicks > 0) {
+    if (cr > 10) {
+      out.add(_EarningsInsight(2,
+          'معدل التحويل ${cr.toStringAsFixed(2)}% > 10%: شذوذ حرج وخطر على الحساب.'));
+    } else if (cr > 5) {
+      out.add(_EarningsInsight(1,
+          'معدل التحويل ${cr.toStringAsFixed(2)}% > 5%: مرتفع، راقب الحساب.'));
+    } else if (cr >= 1.5 && cr <= 3) {
+      out.add(_EarningsInsight(0,
+          'معدل التحويل ${cr.toStringAsFixed(2)}% ضمن النطاق الطبيعي (1.5%-3%).'));
+    }
+  } else if (r.orderedItems > 0) {
+    out.add(const _EarningsInsight(
+        1, 'توجد طلبات بدون نقرات: تحقق من قراءة عمود النقرات.'));
+  }
+
+  if (r.returnedItems > r.shippedItems) {
+    out.add(const _EarningsInsight(1, 'المرتجع أكبر من المشحون.'));
+  }
+  if (r.totalRevenue > 0 && r.commission > r.totalRevenue) {
+    out.add(const _EarningsInsight(
+        2, 'العمولة أكبر من المبيعات: قراءة خاطئة محتملة.'));
+  } else if (r.totalRevenue > 0 && r.commission / r.totalRevenue > 0.15) {
+    out.add(_EarningsInsight(1,
+        'نسبة العمولة ${(r.commission / r.totalRevenue * 100).toStringAsFixed(1)}% أعلى من المعتاد.'));
+  }
+
+  if (e.selected && e.targetCampaignSeq != null) {
+    final dup = all.where((o) =>
+        o != e && o.selected && o.targetCampaignSeq == e.targetCampaignSeq);
+    if (dup.isNotEmpty) {
+      out.add(const _EarningsInsight(2,
+          'نفس الحملة مستهدفة بأكثر من صف: اختر حملة مختلفة أو فعّل الدمج.'));
+    }
+  }
+
+  final camp = _targetCampaignOf(e, campaigns);
+  if (camp != null) {
+    if (r.accountCode.isNotEmpty &&
+        camp.accountCode.trim().toUpperCase() != r.accountCode) {
+      out.add(_EarningsInsight(1,
+          'رمز الحساب في الصورة (${r.accountCode}) يختلف عن الحملة (${camp.accountCode}).'));
+    }
+    if (r.date != null && r.date!.isNotEmpty && r.date != camp.date) {
+      out.add(_EarningsInsight(
+          1, 'تاريخ الصورة (${r.date}) يختلف عن تاريخ الحملة (${camp.date}).'));
+    }
+    if (!camp.isPending && camp.totalEarnings > 0) {
+      out.add(_EarningsInsight(1,
+          'سيستبدل ربحاً مسجلاً سابقاً: \$${camp.totalEarnings.toStringAsFixed(2)} ← \$${r.totalEarnings.toStringAsFixed(2)}.'));
+    }
+    if (r.clicks == 0 && !overwriteClicks && camp.clicks > 0) {
+      out.add(_EarningsInsight(
+          0, 'ستبقى نقرات الحملة المسجلة (${camp.clicks}) كما هي.'));
+    }
+    final net = r.totalEarnings - camp.cost;
+    if (camp.cost > 0) {
+      final roi = net / camp.cost * 100;
+      out.add(_EarningsInsight(
+          net >= 0 ? 0 : 1,
+          'بعد اللصق: صافي \$${net.toStringAsFixed(2)} • ROI ${roi.toStringAsFixed(1)}% '
+          '(التكلفة \$${camp.cost.toStringAsFixed(2)}).'));
+    } else {
+      out.add(const _EarningsInsight(
+          1, 'تكلفة الحملة 0: لا يمكن حساب الربح الصافي أو ROI.'));
+    }
+  } else if (e.newCatalogProductId != null) {
+    out.add(const _EarningsInsight(
+        1, 'سيُنشأ سجل جديد بتكلفة 0؛ أضف تكلفة الإعلان لاحقاً لحساب ROI.'));
+  }
+  return out;
+}
+
+bool _earningsHasBlockingIssue(List<_AmazonEarningsTargetEntry> entries) {
+  final seen = <int>{};
+  for (final e in entries.where((x) => x.selected)) {
+    final s = e.targetCampaignSeq;
+    if (s != null && !seen.add(s)) return true;
+  }
+  return false;
+}
+
+class _EarningsInsightsPanel extends StatelessWidget {
+  const _EarningsInsightsPanel({required this.insights});
+  final List<_EarningsInsight> insights;
+
+  @override
+  Widget build(BuildContext context) {
+    if (insights.isEmpty) return const SizedBox.shrink();
+    Color colorOf(int l) => l == 2
+        ? const Color(0xFFF43F5E)
+        : l == 1
+            ? const Color(0xFFF59E0B)
+            : const Color(0xFF38BDF8);
+    IconData iconOf(int l) => l == 2
+        ? Icons.error_rounded
+        : l == 1
+            ? Icons.warning_amber_rounded
+            : Icons.info_outline_rounded;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final i in insights)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 3),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(iconOf(i.level), size: 15, color: colorOf(i.level)),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    i.text,
+                    style: TextStyle(fontSize: 12, color: colorOf(i.level)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _EarningsBatchSummary extends StatelessWidget {
+  const _EarningsBatchSummary({
+    required this.entries,
+    required this.campaigns,
+    required this.overwriteClicks,
+  });
+  final List<_AmazonEarningsTargetEntry> entries;
+  final List<CampaignLogModel> campaigns;
+  final bool overwriteClicks;
+
+  @override
+  Widget build(BuildContext context) {
+    final sel = entries.where((e) => e.selected).toList();
+    final earnings = sel.fold<double>(0, (s, e) => s + e.row.totalEarnings);
+    final cost = sel.fold<double>(
+        0, (s, e) => s + (_targetCampaignOf(e, campaigns)?.cost ?? 0));
+    final updates = sel.where((e) => e.targetCampaignSeq != null).length;
+    final creates = sel.length - updates;
+    var warns = 0;
+    var crits = 0;
+    for (final e in sel) {
+      for (final i
+          in _earningsInsights(e, entries, campaigns, overwriteClicks)) {
+        if (i.level == 2) crits++;
+        if (i.level == 1) warns++;
+      }
+    }
+    final net = earnings - cost;
+    return Card(
+      margin: const EdgeInsets.only(top: 4),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Wrap(
+          spacing: 18,
+          runSpacing: 6,
+          children: [
+            Text('المحدد: ${sel.length} (تحديث $updates • جديد $creates)',
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+            Text('إجمالي الأرباح: \$${earnings.toStringAsFixed(2)}',
+                style: const TextStyle(color: Color(0xFF38BDF8))),
+            Text('التكلفة: \$${cost.toStringAsFixed(2)}'),
+            Text(
+              'الصافي: \$${net.toStringAsFixed(2)}'
+              '${cost > 0 ? ' • ROI ${(net / cost * 100).toStringAsFixed(1)}%' : ''}',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: net >= 0
+                    ? const Color(0xFF10B981)
+                    : const Color(0xFFF43F5E),
+              ),
+            ),
+            if (warns > 0)
+              Text('⚠ تحذيرات: $warns',
+                  style: const TextStyle(color: Color(0xFFF59E0B))),
+            if (crits > 0)
+              Text('⛔ حرجة: $crits',
+                  style: const TextStyle(color: Color(0xFFF43F5E))),
+          ],
         ),
       ),
     );
@@ -4788,8 +5113,8 @@ class BeneficiariesAndCatalogScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
+                  AppTableScrollWrapper(
+                    tableTitle: 'المستفيدون ورؤوس الأموال',
                     child: DataTable(
                       columns: const [
                         DataColumn(label: Text('م')),
@@ -4902,8 +5227,8 @@ class BeneficiariesAndCatalogScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
+                  AppTableScrollWrapper(
+                    tableTitle: 'دليل المنتجات والحملات المعتمدة',
                     child: DataTable(
                       columns: const [
                         DataColumn(label: Text('م')),
@@ -5327,9 +5652,15 @@ class _AmazonAccountsScreenState extends State<AmazonAccountsScreen> {
 
           Expanded(
             child: Card(
-              child: _tabIndex == 3
-                  ? _buildHistoricalLinksTable(c)
-                  : _buildAmazonTable(list),
+              clipBehavior: Clip.antiAlias,
+              child: AppTableScrollWrapper(
+                tableTitle: _tabIndex == 3
+                    ? 'أرشيف الروابط التاريخية'
+                    : 'سجل حسابات أمازون',
+                child: _tabIndex == 3
+                    ? _buildHistoricalLinksTable(c)
+                    : _buildAmazonTable(list),
+              ),
             ),
           ),
         ],
@@ -5338,203 +5669,193 @@ class _AmazonAccountsScreenState extends State<AmazonAccountsScreen> {
   }
 
   Widget _buildAmazonTable(List<AmazonAccountModel> list) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.vertical,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          headingRowHeight: 46,
-          dataRowMinHeight: 48,
-          dataRowMaxHeight: 58,
-          columns: const [
-            DataColumn(label: Text('المستفيد')),
-            DataColumn(label: Text('الرمز')),
-            DataColumn(label: Text('اسم الحساب')),
-            DataColumn(label: Text('StoreID')),
-            DataColumn(label: Text('الدولة')),
-            DataColumn(label: Text('الحالة')),
-            DataColumn(label: Text('الصنف 1')),
-            DataColumn(label: Text('حالة التغريدة 1')),
-            DataColumn(label: Text('رابط تغريدة 1')),
-            DataColumn(label: Text('الصنف 2')),
-            DataColumn(label: Text('رابط تغريدة 2')),
-            DataColumn(label: Text('أفلييت 1')),
-            DataColumn(label: Text('رابط ووركر Adsterra')),
-            DataColumn(label: Text('الإيميل')),
-            DataColumn(label: Text('الباسوورد')),
-            DataColumn(label: Text('ملاحظات')),
+    return DataTable(
+      headingRowHeight: 46,
+      dataRowMinHeight: 48,
+      dataRowMaxHeight: 58,
+      columns: const [
+        DataColumn(label: Text('المستفيد')),
+        DataColumn(label: Text('الرمز')),
+        DataColumn(label: Text('اسم الحساب')),
+        DataColumn(label: Text('StoreID')),
+        DataColumn(label: Text('الدولة')),
+        DataColumn(label: Text('الحالة')),
+        DataColumn(label: Text('الصنف 1')),
+        DataColumn(label: Text('حالة التغريدة 1')),
+        DataColumn(label: Text('رابط تغريدة 1')),
+        DataColumn(label: Text('الصنف 2')),
+        DataColumn(label: Text('رابط تغريدة 2')),
+        DataColumn(label: Text('أفلييت 1')),
+        DataColumn(label: Text('رابط ووركر Adsterra')),
+        DataColumn(label: Text('الإيميل')),
+        DataColumn(label: Text('الباسوورد')),
+        DataColumn(label: Text('ملاحظات')),
+      ],
+      rows: list.map((a) {
+        return DataRow(
+          cells: [
+            DataCell(
+              Text(
+                a.beneficiary,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            DataCell(buildStatusBadge(a.code)),
+            DataCell(
+              Text(
+                a.name,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            DataCell(
+              InkWell(
+                onTap: () => copyToClipboard(context, a.storeId, 'StoreID'),
+                child: Text(
+                  a.storeId,
+                  style: const TextStyle(fontFamily: 'Consolas'),
+                ),
+              ),
+            ),
+            DataCell(Text(a.country)),
+            DataCell(
+              InkWell(
+                onTap: () {
+                  a.status = a.status == 'نشط' ? 'محظور' : 'نشط';
+                  widget.controller.saveToDisk();
+                },
+                child: buildStatusBadge(a.status),
+              ),
+            ),
+            DataCell(Text(a.product1)),
+            DataCell(buildStatusBadge(a.promoStatus1)),
+            DataCell(
+              a.tweetUrl1.isEmpty
+                  ? const Text('-')
+                  : TextButton.icon(
+                      icon: const Icon(Icons.copy_rounded, size: 15),
+                      label: Text(
+                        a.tweetUrl1,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      onPressed: () => copyToClipboard(
+                        context,
+                        a.tweetUrl1,
+                        'رابط تغريدة 1',
+                      ),
+                    ),
+            ),
+            DataCell(Text(a.product2.isEmpty ? '-' : a.product2)),
+            DataCell(
+              a.tweetUrl2.isEmpty
+                  ? const Text('-')
+                  : TextButton.icon(
+                      icon: const Icon(Icons.copy_rounded, size: 15),
+                      label: Text(
+                        a.tweetUrl2,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      onPressed: () => copyToClipboard(
+                        context,
+                        a.tweetUrl2,
+                        'رابط تغريدة 2',
+                      ),
+                    ),
+            ),
+            DataCell(
+              a.affiliateUrl1.isEmpty
+                  ? const Text('-')
+                  : TextButton.icon(
+                      icon: const Icon(Icons.link_rounded, size: 15),
+                      label: Text(
+                        a.affiliateUrl1,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      onPressed: () => copyToClipboard(
+                        context,
+                        a.affiliateUrl1,
+                        'رابط أفلييت 1',
+                      ),
+                    ),
+            ),
+            DataCell(
+              a.adsterraUrl.isEmpty
+                  ? const Text('-')
+                  : TextButton.icon(
+                      icon: const Icon(Icons.public_rounded, size: 15),
+                      label: Text(
+                        a.adsterraUrl,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      onPressed: () => copyToClipboard(
+                        context,
+                        a.adsterraUrl,
+                        'رابط ووركر Adsterra',
+                      ),
+                    ),
+            ),
+            DataCell(
+              InkWell(
+                onTap: () => copyToClipboard(context, a.email, 'الإيميل'),
+                child: Text(
+                  a.email,
+                  style: const TextStyle(fontFamily: 'Consolas'),
+                ),
+              ),
+            ),
+            DataCell(
+              InkWell(
+                onTap: () => copyToClipboard(context, a.password, 'الباسوورد'),
+                child: Text(
+                  a.password,
+                  style: const TextStyle(fontFamily: 'Consolas'),
+                ),
+              ),
+            ),
+            DataCell(Text(a.notes)),
           ],
-          rows: list.map((a) {
-            return DataRow(
-              cells: [
-                DataCell(
-                  Text(
-                    a.beneficiary,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-                DataCell(buildStatusBadge(a.code)),
-                DataCell(
-                  Text(
-                    a.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
-                DataCell(
-                  InkWell(
-                    onTap: () => copyToClipboard(context, a.storeId, 'StoreID'),
-                    child: Text(
-                      a.storeId,
-                      style: const TextStyle(fontFamily: 'Consolas'),
-                    ),
-                  ),
-                ),
-                DataCell(Text(a.country)),
-                DataCell(
-                  InkWell(
-                    onTap: () {
-                      a.status = a.status == 'نشط' ? 'محظور' : 'نشط';
-                      widget.controller.saveToDisk();
-                    },
-                    child: buildStatusBadge(a.status),
-                  ),
-                ),
-                DataCell(Text(a.product1)),
-                DataCell(buildStatusBadge(a.promoStatus1)),
-                DataCell(
-                  a.tweetUrl1.isEmpty
-                      ? const Text('-')
-                      : TextButton.icon(
-                          icon: const Icon(Icons.copy_rounded, size: 15),
-                          label: Text(
-                            a.tweetUrl1,
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          onPressed: () => copyToClipboard(
-                            context,
-                            a.tweetUrl1,
-                            'رابط تغريدة 1',
-                          ),
-                        ),
-                ),
-                DataCell(Text(a.product2.isEmpty ? '-' : a.product2)),
-                DataCell(
-                  a.tweetUrl2.isEmpty
-                      ? const Text('-')
-                      : TextButton.icon(
-                          icon: const Icon(Icons.copy_rounded, size: 15),
-                          label: Text(
-                            a.tweetUrl2,
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          onPressed: () => copyToClipboard(
-                            context,
-                            a.tweetUrl2,
-                            'رابط تغريدة 2',
-                          ),
-                        ),
-                ),
-                DataCell(
-                  a.affiliateUrl1.isEmpty
-                      ? const Text('-')
-                      : TextButton.icon(
-                          icon: const Icon(Icons.link_rounded, size: 15),
-                          label: Text(
-                            a.affiliateUrl1,
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          onPressed: () => copyToClipboard(
-                            context,
-                            a.affiliateUrl1,
-                            'رابط أفلييت 1',
-                          ),
-                        ),
-                ),
-                DataCell(
-                  a.adsterraUrl.isEmpty
-                      ? const Text('-')
-                      : TextButton.icon(
-                          icon: const Icon(Icons.public_rounded, size: 15),
-                          label: Text(
-                            a.adsterraUrl,
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          onPressed: () => copyToClipboard(
-                            context,
-                            a.adsterraUrl,
-                            'رابط ووركر Adsterra',
-                          ),
-                        ),
-                ),
-                DataCell(
-                  InkWell(
-                    onTap: () => copyToClipboard(context, a.email, 'الإيميل'),
-                    child: Text(
-                      a.email,
-                      style: const TextStyle(fontFamily: 'Consolas'),
-                    ),
-                  ),
-                ),
-                DataCell(
-                  InkWell(
-                    onTap: () =>
-                        copyToClipboard(context, a.password, 'الباسوورد'),
-                    child: Text(
-                      a.password,
-                      style: const TextStyle(fontFamily: 'Consolas'),
-                    ),
-                  ),
-                ),
-                DataCell(Text(a.notes)),
-              ],
-            );
-          }).toList(),
-        ),
-      ),
+        );
+      }).toList(),
     );
   }
 
   Widget _buildHistoricalLinksTable(AppDataController c) {
-    return SingleChildScrollView(
-      child: DataTable(
-        columns: const [
-          DataColumn(label: Text('الأخ المستفيد')),
-          DataColumn(label: Text('اسم الحساب')),
-          DataColumn(label: Text('الصنف')),
-          DataColumn(label: Text('نوع الرابط')),
-          DataColumn(label: Text('الرابط المؤرشف')),
-          DataColumn(label: Text('الملاحظات')),
-        ],
-        rows: c.historicalLinks.map((h) {
-          return DataRow(
-            cells: [
-              DataCell(Text(h.beneficiary)),
-              DataCell(
-                Text(
-                  h.accountName,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
+    return DataTable(
+      columns: const [
+        DataColumn(label: Text('الأخ المستفيد')),
+        DataColumn(label: Text('اسم الحساب')),
+        DataColumn(label: Text('الصنف')),
+        DataColumn(label: Text('نوع الرابط')),
+        DataColumn(label: Text('الرابط المؤرشف')),
+        DataColumn(label: Text('الملاحظات')),
+      ],
+      rows: c.historicalLinks.map((h) {
+        return DataRow(
+          cells: [
+            DataCell(Text(h.beneficiary)),
+            DataCell(
+              Text(
+                h.accountName,
+                style: const TextStyle(fontWeight: FontWeight.bold),
               ),
-              DataCell(Text(h.product)),
-              DataCell(buildStatusBadge(h.linkType)),
-              DataCell(
-                InkWell(
-                  onTap: () =>
-                      copyToClipboard(context, h.url, 'الرابط المؤرشف'),
-                  child: Text(
-                    h.url,
-                    style: const TextStyle(
-                      color: Color(0xFF38BDF8),
-                      fontFamily: 'Consolas',
-                    ),
+            ),
+            DataCell(Text(h.product)),
+            DataCell(buildStatusBadge(h.linkType)),
+            DataCell(
+              InkWell(
+                onTap: () => copyToClipboard(context, h.url, 'الرابط المؤرشف'),
+                child: Text(
+                  h.url,
+                  style: const TextStyle(
+                    color: Color(0xFF38BDF8),
+                    fontFamily: 'Consolas',
                   ),
                 ),
               ),
-              DataCell(Text(h.notes)),
-            ],
-          );
-        }).toList(),
-      ),
+            ),
+            DataCell(Text(h.notes)),
+          ],
+        );
+      }).toList(),
     );
   }
 }
@@ -5654,77 +5975,76 @@ class _EmailAccountsScreenState extends State<EmailAccountsScreen> {
           const SizedBox(height: 12),
           Expanded(
             child: Card(
-              child: SingleChildScrollView(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: DataTable(
-                    columns: const [
-                      DataColumn(label: Text('الإيميل (انقر للنسخ)')),
-                      DataColumn(label: Text('الباسوورد')),
-                      DataColumn(label: Text('حساب GoLogin')),
-                      DataColumn(label: Text('إيميل الربط / الاسترداد')),
-                      DataColumn(label: Text('التحقق بخطوتين')),
-                      DataColumn(label: Text('الحالة')),
-                      DataColumn(label: Text('الدولة')),
-                      DataColumn(label: Text('الرقم المربوط')),
-                      DataColumn(label: Text('الملاحظات')),
-                    ],
-                    rows: filtered.map((e) {
-                      return DataRow(
-                        cells: [
-                          DataCell(
-                            InkWell(
-                              onTap: () =>
-                                  copyToClipboard(context, e.email, 'الإيميل'),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.copy_rounded, size: 14),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    e.email,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontFamily: 'Consolas',
-                                    ),
+              clipBehavior: Clip.antiAlias,
+              child: AppTableScrollWrapper(
+                tableTitle: 'سجل حسابات البريد الإلكتروني (Gmail)',
+                child: DataTable(
+                  columns: const [
+                    DataColumn(label: Text('الإيميل (انقر للنسخ)')),
+                    DataColumn(label: Text('الباسوورد')),
+                    DataColumn(label: Text('حساب GoLogin')),
+                    DataColumn(label: Text('إيميل الربط / الاسترداد')),
+                    DataColumn(label: Text('التحقق بخطوتين')),
+                    DataColumn(label: Text('الحالة')),
+                    DataColumn(label: Text('الدولة')),
+                    DataColumn(label: Text('الرقم المربوط')),
+                    DataColumn(label: Text('الملاحظات')),
+                  ],
+                  rows: filtered.map((e) {
+                    return DataRow(
+                      cells: [
+                        DataCell(
+                          InkWell(
+                            onTap: () =>
+                                copyToClipboard(context, e.email, 'الإيميل'),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.copy_rounded, size: 14),
+                                const SizedBox(width: 6),
+                                Text(
+                                  e.email,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Consolas',
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
-                          DataCell(
-                            InkWell(
-                              onTap: () => copyToClipboard(
-                                context,
-                                e.password,
-                                'الباسوورد',
-                              ),
-                              child: Text(
-                                e.password,
-                                style: const TextStyle(fontFamily: 'Consolas'),
-                              ),
+                        ),
+                        DataCell(
+                          InkWell(
+                            onTap: () => copyToClipboard(
+                              context,
+                              e.password,
+                              'الباسوورد',
+                            ),
+                            child: Text(
+                              e.password,
+                              style: const TextStyle(fontFamily: 'Consolas'),
                             ),
                           ),
-                          DataCell(Text(e.gologin.isEmpty ? '-' : e.gologin)),
-                          DataCell(Text(e.recovery.isEmpty ? '-' : e.recovery)),
-                          DataCell(Text(e.twoFa.isEmpty ? '-' : e.twoFa)),
-                          DataCell(buildStatusBadge(e.status)),
-                          DataCell(Text(e.country.isEmpty ? '-' : e.country)),
-                          DataCell(
-                            InkWell(
-                              onTap: () =>
-                                  copyToClipboard(context, e.phone, 'الرقم'),
-                              child: Text(
-                                e.phone.isEmpty ? '-' : e.phone,
-                                style: const TextStyle(fontFamily: 'Consolas'),
-                              ),
+                        ),
+                        DataCell(Text(e.gologin.isEmpty ? '-' : e.gologin)),
+                        DataCell(Text(e.recovery.isEmpty ? '-' : e.recovery)),
+                        DataCell(Text(e.twoFa.isEmpty ? '-' : e.twoFa)),
+                        DataCell(buildStatusBadge(e.status)),
+                        DataCell(Text(e.country.isEmpty ? '-' : e.country)),
+                        DataCell(
+                          InkWell(
+                            onTap: () =>
+                                copyToClipboard(context, e.phone, 'الرقم'),
+                            child: Text(
+                              e.phone.isEmpty ? '-' : e.phone,
+                              style: const TextStyle(fontFamily: 'Consolas'),
                             ),
                           ),
-                          DataCell(Text(e.notes)),
-                        ],
-                      );
-                    }).toList(),
-                  ),
+                        ),
+                        DataCell(Text(e.notes)),
+                      ],
+                    );
+                  }).toList(),
                 ),
               ),
             ),
@@ -5901,82 +6221,80 @@ class GoLoginScreen extends StatelessWidget {
           const SizedBox(height: 16),
           Expanded(
             child: Card(
-              child: SingleChildScrollView(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: DataTable(
-                    columns: const [
-                      DataColumn(label: Text('الحساب')),
-                      DataColumn(label: Text('المنصة')),
-                      DataColumn(label: Text('الإيميل (انقر للنسخ)')),
-                      DataColumn(label: Text('الباسوورد')),
-                      DataColumn(label: Text('Profile 1')),
-                      DataColumn(label: Text('Profile 2')),
-                      DataColumn(label: Text('Profile 3')),
-                      DataColumn(label: Text('الدولة')),
-                      DataColumn(label: Text('الملاحظات')),
-                    ],
-                    rows: c.gologinAccounts.map((g) {
-                      return DataRow(
-                        cells: [
-                          DataCell(Text(g.accountType)),
-                          DataCell(
-                            Text(
-                              g.platform,
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.bold),
-                            ),
+              clipBehavior: Clip.antiAlias,
+              child: AppTableScrollWrapper(
+                tableTitle: 'سجل حسابات GoLogin',
+                child: DataTable(
+                  columns: const [
+                    DataColumn(label: Text('الحساب')),
+                    DataColumn(label: Text('المنصة')),
+                    DataColumn(label: Text('الإيميل (انقر للنسخ)')),
+                    DataColumn(label: Text('الباسوورد')),
+                    DataColumn(label: Text('Profile 1')),
+                    DataColumn(label: Text('Profile 2')),
+                    DataColumn(label: Text('Profile 3')),
+                    DataColumn(label: Text('الدولة')),
+                    DataColumn(label: Text('الملاحظات')),
+                  ],
+                  rows: c.gologinAccounts.map((g) {
+                    return DataRow(
+                      cells: [
+                        DataCell(Text(g.accountType)),
+                        DataCell(
+                          Text(
+                            g.platform,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
-                          DataCell(
-                            InkWell(
-                              onTap: () => copyToClipboard(
-                                context,
-                                g.email,
-                                'إيميل GoLogin',
-                              ),
-                              child: Text(
-                                g.email,
-                                style: const TextStyle(
-                                  fontFamily: 'Consolas',
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                        ),
+                        DataCell(
+                          InkWell(
+                            onTap: () => copyToClipboard(
+                              context,
+                              g.email,
+                              'إيميل GoLogin',
                             ),
-                          ),
-                          DataCell(
-                            InkWell(
-                              onTap: () => copyToClipboard(
-                                context,
-                                g.password,
-                                'باسوورد GoLogin',
-                              ),
-                              child: Text(
-                                g.password,
-                                style: const TextStyle(fontFamily: 'Consolas'),
+                            child: Text(
+                              g.email,
+                              style: const TextStyle(
+                                fontFamily: 'Consolas',
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
                           ),
-                          DataCell(
-                            g.profile1.isEmpty
-                                ? const Text('-')
-                                : buildStatusBadge(g.profile1),
+                        ),
+                        DataCell(
+                          InkWell(
+                            onTap: () => copyToClipboard(
+                              context,
+                              g.password,
+                              'باسوورد GoLogin',
+                            ),
+                            child: Text(
+                              g.password,
+                              style: const TextStyle(fontFamily: 'Consolas'),
+                            ),
                           ),
-                          DataCell(
-                            g.profile2.isEmpty
-                                ? const Text('-')
-                                : buildStatusBadge(g.profile2),
-                          ),
-                          DataCell(
-                            g.profile3.isEmpty
-                                ? const Text('-')
-                                : buildStatusBadge(g.profile3),
-                          ),
-                          DataCell(Text(g.country.isEmpty ? '-' : g.country)),
-                          DataCell(Text(g.notes)),
-                        ],
-                      );
-                    }).toList(),
-                  ),
+                        ),
+                        DataCell(
+                          g.profile1.isEmpty
+                              ? const Text('-')
+                              : buildStatusBadge(g.profile1),
+                        ),
+                        DataCell(
+                          g.profile2.isEmpty
+                              ? const Text('-')
+                              : buildStatusBadge(g.profile2),
+                        ),
+                        DataCell(
+                          g.profile3.isEmpty
+                              ? const Text('-')
+                              : buildStatusBadge(g.profile3),
+                        ),
+                        DataCell(Text(g.country.isEmpty ? '-' : g.country)),
+                        DataCell(Text(g.notes)),
+                      ],
+                    );
+                  }).toList(),
                 ),
               ),
             ),
@@ -6060,97 +6378,95 @@ class _ProxiesScreenState extends State<ProxiesScreen> {
           const SizedBox(height: 12),
           Expanded(
             child: Card(
-              child: SingleChildScrollView(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: DataTable(
-                    columns: const [
-                      DataColumn(label: Text('الدولة')),
-                      DataColumn(label: Text('تم استخدامه؟')),
-                      DataColumn(label: Text('نوع البورت')),
-                      DataColumn(label: Text('البروتوكول')),
-                      DataColumn(label: Text('الرابط الكامل للنسخ الفوري')),
-                      DataColumn(label: Text('Username')),
-                      DataColumn(label: Text('Password')),
-                      DataColumn(label: Text('Host')),
-                      DataColumn(label: Text('Port')),
-                      DataColumn(label: Text('نسخ')),
-                    ],
-                    rows: filtered.map((p) {
-                      return DataRow(
-                        cells: [
-                          DataCell(
-                            Text(
-                              p.country,
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.bold),
+              clipBehavior: Clip.antiAlias,
+              child: AppTableScrollWrapper(
+                tableTitle: 'سجل البروكسيات (DataImpulse)',
+                child: DataTable(
+                  columns: const [
+                    DataColumn(label: Text('الدولة')),
+                    DataColumn(label: Text('تم استخدامه؟')),
+                    DataColumn(label: Text('نوع البورت')),
+                    DataColumn(label: Text('البروتوكول')),
+                    DataColumn(label: Text('الرابط الكامل للنسخ الفوري')),
+                    DataColumn(label: Text('Username')),
+                    DataColumn(label: Text('Password')),
+                    DataColumn(label: Text('Host')),
+                    DataColumn(label: Text('Port')),
+                    DataColumn(label: Text('نسخ')),
+                  ],
+                  rows: filtered.map((p) {
+                    return DataRow(
+                      cells: [
+                        DataCell(
+                          Text(
+                            p.country,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        DataCell(
+                          InkWell(
+                            onTap: () {
+                              p.isUsed = !p.isUsed;
+                              c.saveToDisk();
+                            },
+                            child: buildStatusBadge(
+                              p.isUsed ? 'نعم (مستخدم)' : 'متاح للاستخدام',
                             ),
                           ),
-                          DataCell(
-                            InkWell(
-                              onTap: () {
-                                p.isUsed = !p.isUsed;
-                                c.saveToDisk();
-                              },
-                              child: buildStatusBadge(
-                                p.isUsed ? 'نعم (مستخدم)' : 'متاح للاستخدام',
-                              ),
+                        ),
+                        DataCell(Text(p.portType)),
+                        DataCell(Text(p.protocol.toUpperCase())),
+                        DataCell(
+                          SelectableText(
+                            p.fullProxyString,
+                            style: const TextStyle(
+                              fontFamily: 'Consolas',
+                              fontSize: 12,
+                              color: Color(0xFF38BDF8),
                             ),
                           ),
-                          DataCell(Text(p.portType)),
-                          DataCell(Text(p.protocol.toUpperCase())),
-                          DataCell(
-                            SelectableText(
+                        ),
+                        DataCell(
+                          Text(
+                            p.username,
+                            style: const TextStyle(fontFamily: 'Consolas'),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            p.password,
+                            style: const TextStyle(fontFamily: 'Consolas'),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            p.host,
+                            style: const TextStyle(fontFamily: 'Consolas'),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            '${p.port}',
+                            style: const TextStyle(
+                              fontFamily: 'Consolas',
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        DataCell(
+                          FilledButton.tonalIcon(
+                            icon: const Icon(Icons.copy_rounded, size: 15),
+                            label: const Text('نسخ البروكسي'),
+                            onPressed: () => copyToClipboard(
+                              context,
                               p.fullProxyString,
-                              style: const TextStyle(
-                                fontFamily: 'Consolas',
-                                fontSize: 12,
-                                color: Color(0xFF38BDF8),
-                              ),
+                              'البروكسي (${p.country})',
                             ),
                           ),
-                          DataCell(
-                            Text(
-                              p.username,
-                              style: const TextStyle(fontFamily: 'Consolas'),
-                            ),
-                          ),
-                          DataCell(
-                            Text(
-                              p.password,
-                              style: const TextStyle(fontFamily: 'Consolas'),
-                            ),
-                          ),
-                          DataCell(
-                            Text(
-                              p.host,
-                              style: const TextStyle(fontFamily: 'Consolas'),
-                            ),
-                          ),
-                          DataCell(
-                            Text(
-                              '${p.port}',
-                              style: const TextStyle(
-                                fontFamily: 'Consolas',
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          DataCell(
-                            FilledButton.tonalIcon(
-                              icon: const Icon(Icons.copy_rounded, size: 15),
-                              label: const Text('نسخ البروكسي'),
-                              onPressed: () => copyToClipboard(
-                                context,
-                                p.fullProxyString,
-                                'البروكسي (${p.country})',
-                              ),
-                            ),
-                          ),
-                        ],
-                      );
-                    }).toList(),
-                  ),
+                        ),
+                      ],
+                    );
+                  }).toList(),
                 ),
               ),
             ),
@@ -6241,87 +6557,85 @@ class _BankAccountsScreenState extends State<BankAccountsScreen> {
           const SizedBox(height: 12),
           Expanded(
             child: Card(
-              child: SingleChildScrollView(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: DataTable(
-                    columns: const [
-                      DataColumn(label: Text('رقم الآيبان (IBAN)')),
-                      DataColumn(label: Text('اسم المستفيد البنكي')),
-                      DataColumn(label: Text('رمز السويفت (BIC)')),
-                      DataColumn(label: Text('اسم البنك')),
-                      DataColumn(label: Text('عنوان البنك والدولة')),
-                      DataColumn(label: Text('حالة الربط')),
-                      DataColumn(label: Text('إيميل حساب أمازون')),
-                      DataColumn(label: Text('اسم صاحب حساب أمازون')),
-                      DataColumn(label: Text('تعديل الربط')),
-                    ],
-                    rows: list.map((b) {
-                      return DataRow(
-                        cells: [
-                          DataCell(
-                            InkWell(
-                              onTap: () => copyToClipboard(
-                                  context, b.iban, 'رقم الآيبان'),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.copy_rounded, size: 14),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    b.iban,
-                                    style: const TextStyle(
-                                      fontFamily: 'Consolas',
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF38BDF8),
-                                    ),
+              clipBehavior: Clip.antiAlias,
+              child: AppTableScrollWrapper(
+                tableTitle: 'سجل الحسابات البنكية والربط مع أمازون',
+                child: DataTable(
+                  columns: const [
+                    DataColumn(label: Text('رقم الآيبان (IBAN)')),
+                    DataColumn(label: Text('اسم المستفيد البنكي')),
+                    DataColumn(label: Text('رمز السويفت (BIC)')),
+                    DataColumn(label: Text('اسم البنك')),
+                    DataColumn(label: Text('عنوان البنك والدولة')),
+                    DataColumn(label: Text('حالة الربط')),
+                    DataColumn(label: Text('إيميل حساب أمازون')),
+                    DataColumn(label: Text('اسم صاحب حساب أمازون')),
+                    DataColumn(label: Text('تعديل الربط')),
+                  ],
+                  rows: list.map((b) {
+                    return DataRow(
+                      cells: [
+                        DataCell(
+                          InkWell(
+                            onTap: () =>
+                                copyToClipboard(context, b.iban, 'رقم الآيبان'),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.copy_rounded, size: 14),
+                                const SizedBox(width: 6),
+                                Text(
+                                  b.iban,
+                                  style: const TextStyle(
+                                    fontFamily: 'Consolas',
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF38BDF8),
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
-                          DataCell(Text(b.beneficiaryName)),
-                          DataCell(
-                            InkWell(
-                              onTap: () =>
-                                  copyToClipboard(context, b.bic, 'BIC'),
-                              child: Text(
-                                b.bic,
-                                style: const TextStyle(fontFamily: 'Consolas'),
-                              ),
-                            ),
-                          ),
-                          DataCell(Text(b.bankName)),
-                          DataCell(
-                            Text('${b.bankAddress} (${b.postalAndCountry})'),
-                          ),
-                          DataCell(buildStatusBadge(b.status)),
-                          DataCell(
-                            Text(
-                              b.amazonEmail.isEmpty ? '-' : b.amazonEmail,
+                        ),
+                        DataCell(Text(b.beneficiaryName)),
+                        DataCell(
+                          InkWell(
+                            onTap: () => copyToClipboard(context, b.bic, 'BIC'),
+                            child: Text(
+                              b.bic,
                               style: const TextStyle(fontFamily: 'Consolas'),
                             ),
                           ),
-                          DataCell(
-                            Text(
-                              b.amazonAccountName.isEmpty
-                                  ? '-'
-                                  : b.amazonAccountName,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
+                        ),
+                        DataCell(Text(b.bankName)),
+                        DataCell(
+                          Text('${b.bankAddress} (${b.postalAndCountry})'),
+                        ),
+                        DataCell(buildStatusBadge(b.status)),
+                        DataCell(
+                          Text(
+                            b.amazonEmail.isEmpty ? '-' : b.amazonEmail,
+                            style: const TextStyle(fontFamily: 'Consolas'),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            b.amazonAccountName.isEmpty
+                                ? '-'
+                                : b.amazonAccountName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                          DataCell(
-                            IconButton(
-                              icon: const Icon(Icons.edit_rounded, size: 18),
-                              onPressed: () => _showLinkBankDialog(context, b),
-                            ),
+                        ),
+                        DataCell(
+                          IconButton(
+                            icon: const Icon(Icons.edit_rounded, size: 18),
+                            onPressed: () => _showLinkBankDialog(context, b),
                           ),
-                        ],
-                      );
-                    }).toList(),
-                  ),
+                        ),
+                      ],
+                    );
+                  }).toList(),
                 ),
               ),
             ),
@@ -6446,8 +6760,8 @@ class PlatformsAndTimingScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 14),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
+                  AppTableScrollWrapper(
+                    tableTitle: 'منصات الإعلانات والتسجيلات',
                     child: DataTable(
                       columns: const [
                         DataColumn(label: Text('التصنيف / الحساب')),
@@ -6600,11 +6914,14 @@ class PlatformsAndTimingScreen extends StatelessWidget {
                               children: [
                                 const Icon(Icons.schedule_rounded, size: 16),
                                 const SizedBox(width: 6),
-                                Text(
-                                  'توقيت سوريا (دمشق): ',
-                                  style: TextStyle(
-                                    fontSize: 12.5,
-                                    color: Colors.grey.shade400,
+                                Flexible(
+                                  child: Text(
+                                    'توقيت سوريا (دمشق): ',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      color: Colors.grey.shade400,
+                                    ),
                                   ),
                                 ),
                                 Text(
@@ -6621,11 +6938,14 @@ class PlatformsAndTimingScreen extends StatelessWidget {
                               children: [
                                 const Icon(Icons.public_rounded, size: 16),
                                 const SizedBox(width: 6),
-                                Text(
-                                  'التوقيت المحلي في أمريكا: ',
-                                  style: TextStyle(
-                                    fontSize: 12.5,
-                                    color: Colors.grey.shade400,
+                                Flexible(
+                                  child: Text(
+                                    'التوقيت المحلي في أمريكا: ',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      color: Colors.grey.shade400,
+                                    ),
                                   ),
                                 ),
                                 Text(

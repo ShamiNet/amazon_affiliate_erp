@@ -2,25 +2,36 @@
 
 Flutter Windows desktop application for managing Amazon affiliate campaigns.
 
-## Analyze a screenshot and copy results to a sheet
+## Extract a report from a screenshot
 
-1. Start the local Gemini extractor using the setup in [`backend/README.md`](backend/README.md).
-2. Run the Flutter app from this folder:
+1. Run the Flutter app:
 
    ```powershell
    flutter run -d windows
    ```
-
-3. Open **استخراج بيانات التقارير**, select **أرباح Amazon** or
+2. Open **استخراج بيانات التقارير** and choose **Gemini السحابي** as the
+   extraction engine. Add one or more named Gemini API key profiles; select
+   the active profile from the dropdown. Keys are stored using
+   Windows-protected storage on this device and can be updated or deleted.
+3. Select **أرباح Amazon** or
    **تقرير الحملات الإعلانية**, and choose your saved screenshot.
-4. Review the privacy notice and explicitly approve sending the screenshot to
-   Gemini. The app does not log into Amazon or upload anything to Amazon.
-5. Review and correct the extracted table, then select **نسخ TSV إلى الشيت** and
-   paste it into Google Sheets or Excel.
+4. Paste a screenshot with **لصق من الحافظة (Ctrl+V)**, or choose an image file.
+5. Select **استخراج البيانات**. The screenshot is sent to Google Gemini over
+   HTTPS; API usage may be subject to the limits and billing settings of your
+   Google account. The desktop app protects the key at rest, but a key used by
+   a desktop client cannot be made secret from someone with access to that
+   device. Use a dedicated key with appropriate restrictions and quota.
+6. Review and correct the extracted draft before using the existing import,
+   **نسخ TSV إلى الشيت**, or CSV/TSV export actions.
 
-Extraction requires an internet connection, an active Gemini API key in the
-local backend process, and applicable Gemini API billing. The key is not
-included in the Flutter app or source code.
+For an Amazon Associates earnings summary, copying the page text from the
+browser and using **لصق جدول من الحافظة** extracts labeled metrics locally
+without OCR or Gemini. This deterministic parser is intended for the familiar
+summary layout; it cannot interpret arbitrary page text or unlabeled tables.
+
+To keep images on the device instead, select **OCR المحلي**. This option uses
+the local OCR service; see [`backend/README.md`](backend/README.md) for setup.
+Gemini results are drafts and should always be checked before importing.
 
 ## Export, import, and clear application data
 

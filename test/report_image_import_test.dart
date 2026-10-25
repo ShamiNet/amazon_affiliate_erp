@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:amazon_affiliate_erp/gemini_api_key_vault.dart';
+import 'package:amazon_affiliate_erp/gemini_report_extractor.dart';
 import 'package:amazon_affiliate_erp/report_image_import_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -21,67 +21,33 @@ void main() {
     expect(decoded['image_base64'], base64Encode([1, 2, 3]));
   });
 
-  test('selected key is sent in a header and not in the image payload', () {
-    final headers =
-        ReportImageImportService.authenticationHeaders(' selected-secret ');
-    final body = ReportImageRequestBody.create(
-      imageBytes: [1, 2, 3],
-      mimeType: 'image/png',
-      reportType: ReportImageType.amazonEarnings,
+  test('reports local OCR health without requiring a model key', () {
+    final health = ReportExtractorHealth(
+      isAvailable: false,
+      engine: 'Tesseract OCR',
+      error: 'Install Arabic and English language data',
     );
-
-    expect(headers, {'X-Gemini-API-Key': 'selected-secret'});
-    expect(utf8.decode(body.bytes), isNot(contains('selected-secret')));
-    expect(
-      () => ReportImageImportService.authenticationHeaders(''),
-      throwsFormatException,
-    );
+    expect(health.isAvailable, isFalse);
+    expect(health.engine, 'Tesseract OCR');
+    expect(health.error, contains('language data'));
   });
 
-  test('secure key vault adds, switches, and removes keys', () async {
-    final store = _MemorySecureStringStore();
-    final vault = GeminiApiKeyVault(store: store);
-    final first = await vault.add(name: 'Main key', secret: 'first-secret');
-    final second = await vault.add(name: 'Backup key', secret: 'second-secret');
+  test('parses Gemini JSON into the existing editable report format', () {
+    final report = GeminiReportExtractor.parseModelText(jsonEncode({
+      'title': 'Amazon earnings',
+      'columns': ['Clicks', 'Commission'],
+      'rows': [
+        ['120', '\$12.40'],
+      ],
+      'warnings': [],
+    }));
 
-    expect(second.activeId, first.activeId);
-    expect(second.activeKey?.maskedSecret, '••••••••cret');
-
-    final selected = await vault.select(second.keys.last.id);
-    expect(selected.activeKey?.name, 'Backup key');
-
-    final removed = await vault.remove(second.keys.last.id);
-    expect(removed.activeKey?.name, 'Main key');
-    expect(removed.keys, hasLength(1));
-    expect((await vault.load()).activeKey?.secret, 'first-secret');
-  });
-
-  test('falls back to the first valid key when saved active key is stale',
-      () async {
-    final store = _MemorySecureStringStore();
-    final vault = GeminiApiKeyVault(store: store);
-
-    await vault.add(name: 'Main key', secret: 'first-secret');
-    await store.write(
-      'gemini_api_key_collection_v1',
-      jsonEncode({
-        'active_id': 'missing-id',
-        'keys': [
-          {'id': 'first-id', 'name': 'Main key', 'secret': 'first-secret'},
-        ],
-      }),
-    );
-
-    final loaded = await vault.load();
-    expect(loaded.activeId, 'first-id');
-    expect(loaded.activeKey?.secret, 'first-secret');
-  });
-
-  test('rejects tab characters in API keys', () {
-    expect(
-      () => ReportImageImportService.authenticationHeaders('  secret\tvalue  '),
-      throwsFormatException,
-    );
+    expect(report.title, 'Amazon earnings');
+    expect(report.columns, ['Clicks', 'Commission']);
+    expect(report.rows, [
+      ['120', '\$12.40'],
+    ]);
+    expect(report.warnings, isEmpty);
   });
 
   group('ExtractedReport', () {
@@ -211,15 +177,26 @@ void main() {
     });
 
     test('rejects rows whose cell count does not match columns', () {
-      expect(
-        () => ExtractedReport.fromJson({
-          'columns': ['Date', 'Earnings'],
-          'rows': [
-            ['2026-10-18'],
-          ],
-        }),
-        throwsFormatException,
-      );
+      final report = ExtractedReport.fromJson({
+        'columns': ['Date', 'Earnings'],
+        'rows': [
+          ['2026-10-18'],
+        ],
+      });
+      expect(report.rows.single, ['2026-10-18', '']);
+      expect(report.warnings, hasLength(1));
+    });
+
+    test('preserves extra Gemini cells by creating temporary columns', () {
+      final report = ExtractedReport.fromJson({
+        'columns': ['Date'],
+        'rows': [
+          ['2026-10-18', 'unexpected value'],
+        ],
+      });
+      expect(report.columns, ['Date', 'عمود إضافي 1']);
+      expect(report.rows.single, ['2026-10-18', 'unexpected value']);
+      expect(report.warnings, hasLength(1));
     });
 
     test('rejects empty extraction results', () {
@@ -246,6 +223,10 @@ void main() {
     expect(find.text('أرباح Amazon'), findsWidgets);
     expect(find.text('لصق من الحافظة (Ctrl+V)'), findsOneWidget);
     expect(find.text('لصق جدول من الحافظة'), findsOneWidget);
+    expect(find.textContaining('ستُرسل الصورة إلى Google'), findsOneWidget);
+    expect(find.text('إضافة / تحديث'), findsOneWidget);
+    expect(find.text('OCR المحلي'), findsNothing);
+    expect(find.text('مفاتيح Gemini'), findsNothing);
   });
 
   testWidgets('pastes clipboard TSV into the report table', (tester) async {
@@ -278,16 +259,75 @@ void main() {
       ['2026-10-18', '12'],
     );
   });
-}
 
-class _MemorySecureStringStore implements SecureStringStore {
-  String? _value;
+  testWidgets('pastes Amazon Associates copied page text without OCR',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.getData') {
+        return {
+          'text': '''
+Hello, Lara Floriane
+StoreID: b09mqwwp8705-20
+Oct 23 2026 /Yesterday
+Commissions
+\$0.00
+Bounties
+\$0.00
+Clicks
+3
+Ordered Items
+0
+Ordered Revenue
+\$0.00
+Shipped Items
+0
+Returned Items
+0
+Total Revenue
+\$0.00
+Bonus
+\$0.00
+Total Earnings(Includes Bonus)
+\$0.00
+''',
+        };
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
 
-  @override
-  Future<String?> read(String key) async => _value;
+    await tester.pumpWidget(
+      const MaterialApp(home: ReportImageImportScreen()),
+    );
+    await tester.tap(find.text('لصق جدول من الحافظة'));
+    await tester.pumpAndSettle();
 
-  @override
-  Future<void> write(String key, String value) async {
-    _value = value;
-  }
+    final values = tester
+        .widgetList<TextFormField>(find.byType(TextFormField))
+        .map((field) => field.initialValue)
+        .toList();
+    expect(values, [
+      '2026-10-23',
+      'b09mqwwp8705-20',
+      '3',
+      '0',
+      '0.00%',
+      '0.00',
+      '0',
+      '0',
+      '0.00',
+      '0.00',
+      '0.00',
+    ]);
+    expect(
+      find.textContaining('دون OCR أو إرسال إلى Gemini'),
+      findsOneWidget,
+    );
+  });
 }

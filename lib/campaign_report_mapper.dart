@@ -138,6 +138,110 @@ String? normalizeReportDate(String value) {
   return null;
 }
 
+double? _clipboardMetric(String text, List<String> labels) {
+  final labelPattern = labels.map(RegExp.escape).join('|');
+  final matches = RegExp(
+    '(?:^|[^A-Za-z])(?:$labelPattern)'
+    r'(?:\s*\([^)]*\))?\s*[:：]?\s*'
+    r'([$€£]?\s*[-+]?\d[\d,]*(?:\.\d+)?%?)',
+    caseSensitive: false,
+  ).allMatches(text);
+  if (matches.isEmpty) return null;
+  return _parseMoney(matches.last.group(1)!);
+}
+
+String? _amazonClipboardDate(String text) {
+  final match = RegExp(
+    r'\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|'
+    r'Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|'
+    r'Dec(?:ember)?)\s+(\d{1,2}),?\s+(\d{4})\b',
+    caseSensitive: false,
+  ).firstMatch(text);
+  if (match == null) return null;
+  const months = {
+    'jan': '01',
+    'feb': '02',
+    'mar': '03',
+    'apr': '04',
+    'may': '05',
+    'jun': '06',
+    'jul': '07',
+    'aug': '08',
+    'sep': '09',
+    'oct': '10',
+    'nov': '11',
+    'dec': '12',
+  };
+  final month = months[match.group(1)!.substring(0, 3).toLowerCase()];
+  if (month == null) return null;
+  return '${match.group(3)}-$month-${match.group(2)!.padLeft(2, '0')}';
+}
+
+/// Parses Amazon Associates' copied summary text without OCR or a model.
+/// Returns null when the copied text does not contain enough labeled metrics.
+ParsedAmazonEarningsRow? parseAmazonAssociatesClipboardReport(String text) {
+  final clicks = _clipboardMetric(text, ['Clicks', 'النقرات']);
+  final orderedItems = _clipboardMetric(
+    text,
+    ['Ordered Items', 'Items Ordered', 'الطلبات المسجلة', 'الطلبات'],
+  );
+  final orderedRevenue = _clipboardMetric(
+    text,
+    ['Ordered Revenue', 'Ordered Sales', 'قيمة الطلبات'],
+  );
+  final shippedItems = _clipboardMetric(
+    text,
+    ['Shipped Items', 'Items Shipped', 'المنتجات المشحونة'],
+  );
+  final returnedItems = _clipboardMetric(
+    text,
+    ['Returned Items', 'Items Returned', 'المنتجات المرتجعة'],
+  );
+  final totalRevenue = _clipboardMetric(
+    text,
+    ['Total Revenue', 'Items Shipped Revenue', 'إجمالي قيمة المبيعات'],
+  );
+  final commission = _clipboardMetric(
+    text,
+    ['Commissions', 'Commission', 'Items Shipped Earnings', 'العمولات'],
+  );
+  final bonus = _clipboardMetric(text, ['Bounties', 'Bonus', 'المكافآت']);
+  final totalEarnings = _clipboardMetric(
+    text,
+    ['Total Earnings', 'الأرباح الإجمالية'],
+  );
+  final requiredMetricCount = [
+    clicks,
+    orderedItems,
+    orderedRevenue,
+    totalRevenue,
+  ].whereType<double>().length;
+  if (requiredMetricCount < 2) return null;
+
+  var commissionValue = commission ?? 0;
+  final bonusValue = bonus ?? 0;
+  if (commissionValue == 0 && bonusValue == 0 && (totalEarnings ?? 0) > 0) {
+    commissionValue = totalEarnings!;
+  }
+  final trackingId = RegExp(
+    r'(?:StoreID|Tracking ID)\s*:\s*([A-Za-z0-9_-]+)',
+    caseSensitive: false,
+  ).firstMatch(text)?.group(1);
+
+  return ParsedAmazonEarningsRow(
+    clicks: (clicks ?? 0).round(),
+    orderedItems: (orderedItems ?? 0).round(),
+    orderedRevenue: orderedRevenue ?? 0,
+    shippedItems: (shippedItems ?? 0).round(),
+    returnedItems: (returnedItems ?? 0).round(),
+    totalRevenue: totalRevenue ?? 0,
+    commission: commissionValue,
+    bonus: bonusValue,
+    date: _amazonClipboardDate(text),
+    label: trackingId ?? '',
+  );
+}
+
 int _findColumn(List<String> columns, List<String> keywords) {
   for (var i = 0; i < columns.length; i++) {
     final name = columns[i].toLowerCase();
@@ -164,8 +268,11 @@ List<ParsedCampaignRow> parseAdCampaignRows(
   List<List<String>> rows, {
   String? fallbackDate,
 }) {
-  final nameIndex =
-      _findColumn(columns, ['اسم الحملة', 'campaign name', 'campaign']);
+  final nameIndex = _findColumnFiltered(
+    columns,
+    ['اسم الحملة', 'campaign name', 'campaign'],
+    excludeKeywords: ['معرف', 'رمز', ' id', 'code'],
+  );
   final costIndex = _findColumn(columns, ['التكلفة', 'cost', 'spend']);
   final clicksIndex = _findColumn(columns, ['النقرات', 'click']);
   final dateIndex = _findColumn(columns, ['تاريخ', 'date']);

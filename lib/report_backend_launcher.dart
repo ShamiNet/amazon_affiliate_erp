@@ -9,6 +9,9 @@ class ReportBackendLauncher {
   static const _healthUrl = 'http://127.0.0.1:8765/health';
 
   Process? _process;
+  String? _lastStartError;
+
+  String? get lastStartError => _lastStartError;
 
   Future<bool> _isRunning() async {
     final client = HttpClient()
@@ -50,11 +53,19 @@ class ReportBackendLauncher {
 
   /// Starts run_report_extractor.ps1 unless the service already responds.
   Future<void> start() async {
-    if (!Platform.isWindows || _process != null) return;
+    if (!Platform.isWindows) return;
     try {
-      if (await _isRunning()) return;
+      if (await _isRunning()) {
+        _lastStartError = null;
+        return;
+      }
+      if (_process != null) return;
       final script = _findScript();
-      if (script == null) return;
+      if (script == null) {
+        _lastStartError =
+            'تعذر العثور على ملف backend\\run_report_extractor.ps1 بجوار التطبيق.';
+        return;
+      }
       _process = await Process.start(
         'powershell.exe',
         [
@@ -68,13 +79,59 @@ class ReportBackendLauncher {
         ],
         workingDirectory: script.parent.path,
       );
-      // Drain output so the child never blocks on a full pipe.
-      unawaited(_process!.stdout.drain<void>());
-      unawaited(_process!.stderr.drain<void>());
-      unawaited(_process!.exitCode.then((_) => _process = null));
-    } catch (_) {
+      final process = _process!;
+      final outputBuffer = StringBuffer();
+      unawaited(
+        process.stdout
+            .transform(SystemEncoding().decoder)
+            .listen(outputBuffer.write)
+            .asFuture<void>(),
+      );
+      unawaited(
+        process.stderr
+            .transform(SystemEncoding().decoder)
+            .listen(outputBuffer.write)
+            .asFuture<void>(),
+      );
+      unawaited(
+        process.exitCode.then((code) {
+          if (identical(_process, process)) {
+            _process = null;
+          }
+          if (code != 0 && _lastStartError == null) {
+            _lastStartError = _formatStartupError(
+              outputBuffer.toString(),
+              code,
+            );
+          }
+        }),
+      );
+      _lastStartError = null;
+    } catch (error) {
+      _lastStartError = 'تعذر تشغيل خدمة OCR المحلية: $error';
       _process = null;
     }
+  }
+
+  String _formatStartupError(String output, int exitCode) {
+    final trimmed = output.trim();
+    final lower = trimmed.toLowerCase();
+    if (lower.contains("python") &&
+        (lower.contains("not recognized") ||
+            lower.contains("could not find") ||
+            lower.contains("not found"))) {
+      return 'تعذر تشغيل Python. ثبّت Python 3.10+ أو أضفه إلى PATH ثم أعد التشغيل.';
+    }
+    if (trimmed.contains('Bundled Tesseract OCR executable is missing')) {
+      return 'ملفات Tesseract المحلية غير مكتملة. أعد تثبيت التطبيق.';
+    }
+    if (trimmed.contains('Bundled Arabic and English Tesseract language data')) {
+      return 'بيانات اللغتين العربية/الإنجليزية لـ Tesseract غير مكتملة.';
+    }
+    if (trimmed.isEmpty) {
+      return 'تعذر تشغيل خدمة OCR المحلية (Exit Code: $exitCode).';
+    }
+    return 'تعذر تشغيل خدمة OCR المحلية: $trimmed';
   }
 
   void stop() {

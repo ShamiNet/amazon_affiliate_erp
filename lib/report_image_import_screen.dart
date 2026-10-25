@@ -5,171 +5,17 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:amazon_affiliate_erp/app_table_scroll_wrapper.dart';
 import 'package:amazon_affiliate_erp/campaign_report_mapper.dart';
-import 'package:amazon_affiliate_erp/gemini_api_key_vault.dart';
+import 'package:amazon_affiliate_erp/gemini_report_extractor.dart';
 import 'package:image/image.dart' as img;
 import 'package:pasteboard/pasteboard.dart';
+import 'package:amazon_affiliate_erp/report_backend_launcher.dart';
+import 'package:amazon_affiliate_erp/report_image_models.dart';
+
+export 'package:amazon_affiliate_erp/report_image_models.dart';
 
 const _reportExtractorBaseUrl = 'http://127.0.0.1:8765';
-
-enum ReportImageType {
-  amazonEarnings('amazon_earnings', 'أرباح Amazon'),
-  adCampaigns('ad_campaigns', 'تقرير الحملات الإعلانية');
-
-  const ReportImageType(this.apiValue, this.label);
-
-  final String apiValue;
-  final String label;
-}
-
-class ExtractedReport {
-  const ExtractedReport({
-    required this.title,
-    required this.columns,
-    required this.rows,
-    required this.warnings,
-  });
-
-  final String title;
-  final List<String> columns;
-  final List<List<String>> rows;
-  final List<String> warnings;
-
-  factory ExtractedReport.fromJson(Map<String, dynamic> json) {
-    final columnsValue = json['columns'];
-    final rowsValue = json['rows'];
-    if (columnsValue is! List || rowsValue is! List) {
-      throw const FormatException('استجابة Gemini لا تحتوي أعمدة وصفوفاً.');
-    }
-
-    final columns = columnsValue.map((value) => value.toString()).toList();
-    if (columns.isEmpty) {
-      throw const FormatException('لم يتم استخراج أعمدة من الصورة.');
-    }
-    final rows = <List<String>>[];
-    for (final rowValue in rowsValue) {
-      if (rowValue is! List) {
-        throw const FormatException('صيغة أحد صفوف التقرير غير صحيحة.');
-      }
-      final row = rowValue.map((value) => value?.toString() ?? '').toList();
-      if (row.length != columns.length) {
-        throw const FormatException(
-          'عدد خلايا أحد الصفوف لا يطابق عدد الأعمدة.',
-        );
-      }
-      rows.add(row);
-    }
-    if (rows.isEmpty) {
-      throw const FormatException('لم يتم استخراج أي صف من الصورة.');
-    }
-
-    final warningValue = json['warnings'];
-    return ExtractedReport(
-      title: (json['title'] ?? 'نتيجة استخراج التقرير').toString(),
-      columns: columns,
-      rows: rows,
-      warnings: warningValue is List
-          ? warningValue.map((value) => value.toString()).toList()
-          : const [],
-    );
-  }
-
-  String toTsv(List<List<String>> editedRows) {
-    String cleanCell(String value) =>
-        value.replaceAll(RegExp(r'[\t\r\n]+'), ' ').trim();
-    return [
-      columns.map(cleanCell).join('\t'),
-      ...editedRows.map((row) => row.map(cleanCell).join('\t')),
-    ].join('\r\n');
-  }
-
-  String toRowsOnlyTsv(List<List<String>> editedRows) {
-    String cleanCell(String value) =>
-        value.replaceAll(RegExp(r'[\t\r\n]+'), ' ').trim();
-    return editedRows
-        .map((row) => row.map(cleanCell).join('\t'))
-        .join('\r\n');
-  }
-
-  String toCsv(List<List<String>> editedRows) {
-    final rows = [
-      columns.map(_quoteCsvCell).join(','),
-      ...editedRows.map((row) => row.map(_quoteCsvCell).join(',')),
-    ];
-    return rows.join('\r\n');
-  }
-
-  static String _quoteCsvCell(String value) {
-    final normalized = value.replaceAll('"', '""');
-    if (normalized.contains(',') ||
-        normalized.contains('"') ||
-        normalized.contains('\n') ||
-        normalized.contains('\r')) {
-      return '"$normalized"';
-    }
-    return normalized;
-  }
-
-  factory ExtractedReport.fromDelimitedText(String text,
-      {required String delimiter}) {
-    final sanitized = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
-    final lines = sanitized
-        .split('\n')
-        .map((line) => line.trimRight())
-        .where((line) => line.isNotEmpty)
-        .toList();
-    if (lines.isEmpty) {
-      throw const FormatException('الملف المستورد فارغ.');
-    }
-
-    final columns = _splitDelimitedLine(lines.first, delimiter: delimiter);
-    final rows = <List<String>>[];
-    for (var i = 1; i < lines.length; i++) {
-      final row = _splitDelimitedLine(lines[i], delimiter: delimiter);
-      if (row.length != columns.length) {
-        throw const FormatException(
-            'عدد أعمدة الملف المستورد لا يطابق الصفوف.');
-      }
-      rows.add(row);
-    }
-
-    return ExtractedReport(
-      title: 'استيراد ملف',
-      columns: columns,
-      rows: rows,
-      warnings: const [],
-    );
-  }
-
-  static List<String> _splitDelimitedLine(String line,
-      {required String delimiter}) {
-    if (delimiter.isEmpty) {
-      return [line];
-    }
-
-    final cells = <String>[];
-    final buffer = StringBuffer();
-    var inQuotes = false;
-    for (var index = 0; index < line.length; index++) {
-      final char = line[index];
-      if (char == '"') {
-        if (inQuotes && index + 1 < line.length && line[index + 1] == '"') {
-          buffer.write('"');
-          index++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-      } else if (char == delimiter && !inQuotes) {
-        cells.add(buffer.toString());
-        buffer.clear();
-      } else {
-        buffer.write(char);
-      }
-    }
-    cells.add(buffer.toString());
-    return cells;
-  }
-}
 
 class ReportComparison {
   ReportComparison({
@@ -330,11 +176,13 @@ class ReportImageRequestBody {
 class ReportExtractorHealth {
   const ReportExtractorHealth({
     required this.isAvailable,
-    required this.model,
+    required this.engine,
+    this.error,
   });
 
   final bool isAvailable;
-  final String model;
+  final String engine;
+  final String? error;
 }
 
 class ReportImageImportService {
@@ -345,14 +193,6 @@ class ReportImageImportService {
 
   final HttpClient _httpClient;
   final String baseUrl;
-
-  static Map<String, String> authenticationHeaders(String apiKey) {
-    final normalized = apiKey.trim();
-    if (normalized.isEmpty || normalized.contains(RegExp(r'[\r\n\t]'))) {
-      throw const FormatException('اختر مفتاح Gemini صالحاً قبل التحليل.');
-    }
-    return {'X-Gemini-API-Key': normalized};
-  }
 
   Future<ReportExtractorHealth> checkHealth() async {
     final uri = Uri.tryParse('$baseUrl/health');
@@ -377,14 +217,16 @@ class ReportImageImportService {
     if (decoded is! Map<String, dynamic> || decoded['status'] != 'ok') {
       throw const FormatException('رد فحص الخدمة غير صحيح.');
     }
-    if (decoded['service_version'] != 5) {
+    final serviceVersion = decoded['service_version'];
+    if (serviceVersion is! int || serviceVersion < 8) {
       throw const FormatException(
-        'نسخة خدمة الخلفية قديمة. أوقفها بـ Ctrl+C ثم أعد تشغيل run_report_extractor.ps1.',
+        'نسخة خدمة الخلفية قديمة. أوقفها بـ Ctrl+C ثم أعد تشغيل التطبيق أو backend\\run_report_extractor.ps1 لتفعيل سجل التشخيص.',
       );
     }
     return ReportExtractorHealth(
-      isAvailable: true,
-      model: (decoded['model'] ?? 'غير محدد').toString(),
+      isAvailable: decoded['available'] == true,
+      engine: (decoded['engine'] ?? 'غير محدد').toString(),
+      error: decoded['error']?.toString(),
     );
   }
 
@@ -392,7 +234,6 @@ class ReportImageImportService {
     required List<int> imageBytes,
     required String mimeType,
     required ReportImageType reportType,
-    required String apiKey,
   }) async {
     final uri = Uri.tryParse('$baseUrl/v1/reports/extract-image');
     if (uri == null ||
@@ -405,7 +246,6 @@ class ReportImageImportService {
       );
     }
 
-    final headers = authenticationHeaders(apiKey);
     final request =
         await _httpClient.postUrl(uri).timeout(const Duration(seconds: 15));
     final requestBody = ReportImageRequestBody.create(
@@ -414,9 +254,6 @@ class ReportImageImportService {
       reportType: reportType,
     );
     request.headers.contentType = ContentType.json;
-    for (final header in headers.entries) {
-      request.headers.set(header.key, header.value);
-    }
     request.contentLength = requestBody.contentLength;
     request.add(requestBody.bytes);
 
@@ -477,10 +314,10 @@ class ReportImageImportScreen extends StatefulWidget {
 
 class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
   final ReportImageImportService _service = ReportImageImportService();
-  final GeminiApiKeyVault _keyVault = GeminiApiKeyVault();
+  final GeminiReportExtractor _geminiExtractor = GeminiReportExtractor();
+  final GeminiApiKeyStore _geminiApiKeyStore = GeminiApiKeyStore();
+  ReportExtractionMode _extractionMode = ReportExtractionMode.gemini;
   ReportImageType _reportType = ReportImageType.amazonEarnings;
-  GeminiApiKeyCollection _keyCollection =
-      const GeminiApiKeyCollection(keys: [], activeId: null);
   List<int>? _imageBytes;
   String? _imageName;
   String? _mimeType;
@@ -489,153 +326,141 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
   List<List<String>> _editedRows = [];
   String? _lastExportPath;
   String? _lastImportPath;
-  bool _hasConsent = false;
   bool _isLoading = false;
-  bool _isKeyVaultLoading = true;
   String? _error;
-  String? _keyError;
-  String _backendStatus = 'جارٍ فحص خدمة Gemini المحلية…';
+  String _backendStatus = 'جارٍ فحص محرك OCR المحلي…';
   bool? _backendAvailable;
+  List<String> _geminiProfileNames = [];
+  String? _activeGeminiProfile;
+  String? _geminiKeyStatus;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_loadGeminiKeys());
-    unawaited(_refreshBackendStatus());
+    unawaited(_refreshGeminiKeyStatus());
   }
 
-  Future<void> _loadGeminiKeys() async {
+  Future<void> _refreshGeminiKeyStatus() async {
     try {
-      final collection = await _keyVault.load();
+      final state = await _geminiApiKeyStore.readState();
       if (!mounted) return;
       setState(() {
-        _keyCollection = collection;
-        _isKeyVaultLoading = false;
-        _keyError = null;
+        _geminiProfileNames = state.profiles.keys.toList()..sort();
+        _activeGeminiProfile = state.activeName;
+        _geminiKeyStatus = state.activeKey?.isNotEmpty == true
+            ? 'المفتاح النشط: ${state.activeName}. ستُرسل الصورة إلى Google عند الاستخراج.'
+            : 'أضف ملف مفتاح Gemini واختره. ستُرسل الصور إلى Google عند الاستخراج.';
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _isKeyVaultLoading = false;
-        _keyError = 'تعذر قراءة مخزن مفاتيح Gemini الآمن: $error';
+        _geminiProfileNames = [];
+        _activeGeminiProfile = null;
+        _geminiKeyStatus = 'تعذر قراءة ملفات مفاتيح Gemini: $error';
       });
     }
   }
 
-  Future<void> _addGeminiKey() async {
-    final nameController = TextEditingController();
-    final keyController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-    try {
-      final shouldSave = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('إضافة مفتاح Gemini'),
-          content: SizedBox(
-            width: 440,
-            child: Form(
-              key: formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextFormField(
-                    controller: nameController,
-                    autofocus: true,
-                    decoration: const InputDecoration(
-                      labelText: 'اسم تعريفي',
-                      hintText: 'مثال: المفتاح الأساسي',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (value) => value == null || value.trim().isEmpty
-                        ? 'أدخل اسماً للمفتاح.'
-                        : null,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: keyController,
-                    obscureText: true,
-                    enableSuggestions: false,
-                    autocorrect: false,
-                    decoration: const InputDecoration(
-                      labelText: 'Gemini API key',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (value) {
-                      final key = value?.trim() ?? '';
-                      if (key.isEmpty) return 'أدخل المفتاح.';
-                      if (key.contains('\r') || key.contains('\n')) {
-                        return 'تحقق من قيمة المفتاح.';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'يُحفظ المفتاح مشفراً على هذا الجهاز ولا يظهر كاملاً بعد الحفظ.',
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('إلغاء'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (formKey.currentState?.validate() ?? false) {
-                  Navigator.pop(dialogContext, true);
-                }
-              },
-              child: const Text('حفظ بأمان'),
-            ),
-          ],
+  Future<void> _configureGeminiKey({String? initialName}) async {
+    final nameController = TextEditingController(text: initialName ?? '');
+    final controller = TextEditingController();
+    final profile = await showDialog<(String, String)>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          initialName == null ? 'إضافة ملف مفتاح Gemini' : 'تحديث مفتاح Gemini',
         ),
+        content: SizedBox(
+          width: 480,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'أدخل مفتاح API الخاص بك. يُحفظ محلياً بتشفير Windows، '
+                'ولا يُضمّن في ملفات التطبيق. تذكّر أن مفتاح تطبيق سطح المكتب '
+                'يمكن استخراجه من الجهاز، واستخدم مفتاحاً مقيّداً بحصة مناسبة.',
+              ),
+              const SizedBox(height: 12),
+              const SelectableText(
+                  'إنشاء المفتاح: https://aistudio.google.com/apikey'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: nameController,
+                autofocus: initialName == null,
+                decoration: const InputDecoration(
+                  labelText: 'اسم الملف (مثل baynancish)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: initialName != null,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Gemini API key',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              dialogContext,
+              (nameController.text.trim(), controller.text.trim()),
+            ),
+            child: const Text('حفظ الملف'),
+          ),
+        ],
+      ),
+    );
+    nameController.dispose();
+    controller.dispose();
+    if (profile == null) return;
+
+    try {
+      await _geminiApiKeyStore.saveProfile(
+        name: profile.$1,
+        apiKey: profile.$2,
       );
-      if (shouldSave != true || !mounted) return;
-      final collection = await _keyVault.add(
-        name: nameController.text,
-        secret: keyController.text,
-      );
+      await _refreshGeminiKeyStatus();
       if (!mounted) return;
-      setState(() {
-        _keyCollection = collection;
-        _keyError = null;
-      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم حفظ ملف المفتاح محلياً بأمان.')),
+      );
     } catch (error) {
       if (!mounted) return;
-      setState(() => _keyError = 'تعذر حفظ مفتاح Gemini بأمان: $error');
-    } finally {
-      nameController.dispose();
-      keyController.dispose();
+      setState(() => _geminiKeyStatus = 'تعذر حفظ ملف المفتاح: $error');
     }
   }
 
-  Future<void> _selectGeminiKey(String? id) async {
-    if (id == null || id == _keyCollection.activeId) return;
+  Future<void> _selectGeminiProfile(String? name) async {
+    if (name == null) return;
     try {
-      final collection = await _keyVault.select(id);
-      if (!mounted) return;
-      setState(() {
-        _keyCollection = collection;
-        _keyError = null;
-      });
+      await _geminiApiKeyStore.selectProfile(name);
+      await _refreshGeminiKeyStatus();
     } catch (error) {
       if (mounted) {
-        setState(() => _keyError = 'تعذر تبديل مفتاح Gemini: $error');
+        setState(() => _geminiKeyStatus = 'تعذر اختيار الملف: $error');
       }
     }
   }
 
-  Future<void> _removeActiveGeminiKey() async {
-    final activeKey = _keyCollection.activeKey;
-    if (activeKey == null) return;
-    final shouldRemove = await showDialog<bool>(
+  Future<void> _deleteGeminiProfile() async {
+    final name = _activeGeminiProfile;
+    if (name == null) return;
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('حذف مفتاح Gemini؟'),
-        content: Text('سيتم حذف "${activeKey.name}" من التخزين الآمن.'),
+        title: const Text('حذف ملف مفتاح Gemini'),
+        content: Text('هل تريد حذف المفتاح المحفوظ للملف "$name"؟'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
@@ -648,34 +473,36 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
         ],
       ),
     );
-    if (shouldRemove != true) return;
+    if (confirmed != true) return;
     try {
-      final collection = await _keyVault.remove(activeKey.id);
-      if (!mounted) return;
-      setState(() {
-        _keyCollection = collection;
-        _keyError = null;
-      });
+      await _geminiApiKeyStore.deleteProfile(name);
+      await _refreshGeminiKeyStatus();
     } catch (error) {
-      if (mounted) setState(() => _keyError = 'تعذر حذف مفتاح Gemini: $error');
+      if (mounted) setState(() => _geminiKeyStatus = 'تعذر حذف الملف: $error');
     }
   }
 
-  Future<void> _refreshBackendStatus() async {
+  Future<void> _refreshBackendStatus({bool tryStartBackend = false}) async {
+    if (tryStartBackend && Platform.isWindows) {
+      await ReportBackendLauncher.instance.start();
+    }
     try {
       final health = await _service.checkHealth();
       if (!mounted) return;
       setState(() {
         _backendAvailable = health.isAvailable;
-        _backendStatus = 'الخدمة المحلية متصلة (النموذج: ${health.model}). '
-            'يُستخدم المفتاح النشط المحفوظ في التطبيق.';
+        _backendStatus = health.isAvailable
+            ? 'محرك OCR المحلي جاهز (${health.engine}). لا تُرسل الصورة إلى الإنترنت.'
+            : health.error ?? 'محرك OCR المحلي غير جاهز.';
       });
     } on SocketException {
       if (mounted) {
+        final startupError = ReportBackendLauncher.instance.lastStartError;
         setState(() {
           _backendAvailable = false;
-          _backendStatus =
-              'خدمة الخلفية غير متصلة على 127.0.0.1:8765. شغّل backend أولاً.';
+          _backendStatus = startupError == null
+              ? 'خدمة الخلفية غير متصلة على 127.0.0.1:8765. شغّل backend أولاً.'
+              : 'خدمة الخلفية غير متصلة على 127.0.0.1:8765. $startupError';
         });
       }
     } on TimeoutException {
@@ -729,7 +556,6 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
       _report = null;
       _editedRows = [];
       _error = null;
-      _hasConsent = false;
     });
   }
 
@@ -775,6 +601,7 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
   @override
   void dispose() {
     _service.close();
+    _geminiExtractor.close();
     super.dispose();
   }
 
@@ -824,14 +651,7 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
   Future<void> _extract() async {
     final bytes = _imageBytes;
     final mimeType = _mimeType;
-    final apiKey = _keyCollection.activeKey?.secret;
-    if (bytes == null ||
-        mimeType == null ||
-        apiKey == null ||
-        !_hasConsent ||
-        _isLoading) {
-      return;
-    }
+    if (bytes == null || mimeType == null || _isLoading) return;
 
     setState(() {
       _isLoading = true;
@@ -841,12 +661,27 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
     });
 
     try {
-      final report = await _service.extract(
-        imageBytes: bytes,
-        mimeType: mimeType,
-        reportType: _reportType,
-        apiKey: apiKey,
-      );
+      late final ExtractedReport report;
+      if (_extractionMode == ReportExtractionMode.gemini) {
+        var state = await _geminiApiKeyStore.readState();
+        if (state.activeKey?.trim().isNotEmpty != true) {
+          await _configureGeminiKey();
+          state = await _geminiApiKeyStore.readState();
+        }
+        if (state.activeKey?.trim().isNotEmpty != true) return;
+        report = await _geminiExtractor.extract(
+          apiKey: state.activeKey!,
+          imageBytes: bytes,
+          mimeType: mimeType,
+          reportType: _reportType,
+        );
+      } else {
+        report = await _service.extract(
+          imageBytes: bytes,
+          mimeType: mimeType,
+          reportType: _reportType,
+        );
+      }
       if (!mounted) return;
       setState(() {
         _report = report;
@@ -854,17 +689,29 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
       });
     } on SocketException catch (error) {
       if (mounted) {
+        final startupError = ReportBackendLauncher.instance.lastStartError;
+        final startupHint = startupError == null ? '' : ' ($startupError)';
         setState(() {
           _error = 'انقطع اتصال التطبيق بالخدمة المحلية أثناء الطلب. '
               'رسالة النظام: ${error.message}. '
-              'تحقق من نافذة PowerShell: إذا ظهر فيها "sending ... image to Gemini" '
-              'فالمشكلة في رد Gemini/الشبكة، وإذا لم يظهر فالمشكلة بين التطبيق والخدمة. '
-              'اضغط فحص الاتصال بعد ذلك.';
+              'تحقق من تشغيل خدمة OCR المحلية ثم اضغط فحص الاتصال.$startupHint';
         });
-        unawaited(_refreshBackendStatus());
+        unawaited(_refreshBackendStatus(tryStartBackend: true));
       }
     } on HttpException catch (error) {
-      if (mounted) setState(() => _error = error.message);
+      if (mounted) {
+        final isClosedConnection = error.message
+            .toLowerCase()
+            .contains('connection closed before full header');
+        setState(() {
+          _error = isClosedConnection
+              ? 'أغلقت خدمة OCR الاتصال قبل إرسال الرد. '
+                  'أعد تشغيل التطبيق ثم جرّب مرة واحدة؛ إذا تكرر الخطأ '
+                  'أرسل سجل التشخيص من '
+                  r'%LOCALAPPDATA%\AmazonAffiliateERP\logs\report_extractor.log'
+              : error.message;
+        });
+      }
     } on FormatException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } on TimeoutException {
@@ -931,38 +778,70 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
         throw const FormatException('الحافظة لا تحتوي على بيانات نصية.');
       }
 
-      ExtractedReport report;
-      try {
-        final candidate = ExtractedReport.fromDelimitedText(
-          text,
-          delimiter: text.contains('\t') ? '\t' : ',',
-        );
-        if (candidate.rows.isEmpty ||
-            candidate.columns.any((column) => column.trim().isEmpty)) {
-          throw const FormatException('بدون عناوين');
-        }
-        report = candidate;
-      } on FormatException catch (_) {
-        // إذا كان النص المنسوخ في الحافظة عبارة عن صف أرباح بدون عناوين (مثل مخرجات نسخ صف الأرباح فقط)
-        final earningsRows = parseAmazonEarningsFromClipboardText(text);
+      final copiedAmazonReport = _reportType == ReportImageType.amazonEarnings
+          ? parseAmazonAssociatesClipboardReport(text)
+          : null;
+      late ExtractedReport report;
+      if (copiedAmazonReport != null) {
+        final columns = [
+          'Date',
+          'StoreID',
+          'Clicks',
+          'Ordered Items',
+          'Conversion',
+          'Ordered Revenue',
+          'Shipped Items',
+          'Returned Items',
+          'Total Revenue',
+          'Commission',
+          'Bonus',
+        ];
         report = ExtractedReport(
-          title: 'بيانات أرباح أمازون من الحافظة',
-          columns: const [
-            'النقرات (Clicks)',
-            'الطلبات المسجلة (Ordered Items)',
-            'نسبة التحويل (Conversion %)',
-            'قيمة الطلبات المقدرة (Ordered Revenue)',
-            'المنتجات المشحونة (Shipped Items)',
-            'المنتجات المرتجعة (Returned Items)',
-            'إجمالي قيمة المبيعات (Total Revenue)',
-            'عمولات أمازون (Commission)',
-            'المكافآت الإضافية (Bonus)',
+          title: 'Amazon Associates summary (clipboard)',
+          columns: columns,
+          rows: [
+            [
+              copiedAmazonReport.date ?? '',
+              copiedAmazonReport.label,
+              ...copiedAmazonReport.toSheetTsvRow().split('\t'),
+            ],
           ],
-          rows: earningsRows
-              .map((r) => r.toSheetTsvRow().split('\t'))
-              .toList(),
-          warnings: const [],
+          warnings: const [
+            'تم استخراج القيم من النص المنسوخ بقواعد محلية، دون OCR أو إرسال إلى Gemini. راجع القيم قبل اعتمادها.',
+          ],
         );
+      } else {
+        try {
+          final candidate = ExtractedReport.fromDelimitedText(
+            text,
+            delimiter: text.contains('\t') ? '\t' : ',',
+          );
+          if (candidate.rows.isEmpty ||
+              candidate.columns.any((column) => column.trim().isEmpty)) {
+            throw const FormatException('بدون عناوين');
+          }
+          report = candidate;
+        } on FormatException catch (_) {
+          // Accept the app's own headerless earnings TSV as well.
+          final earningsRows = parseAmazonEarningsFromClipboardText(text);
+          report = ExtractedReport(
+            title: 'بيانات أرباح أمازون من الحافظة',
+            columns: const [
+              'النقرات (Clicks)',
+              'الطلبات المسجلة (Ordered Items)',
+              'نسبة التحويل (Conversion %)',
+              'قيمة الطلبات المقدرة (Ordered Revenue)',
+              'المنتجات المشحونة (Shipped Items)',
+              'المنتجات المرتجعة (Returned Items)',
+              'إجمالي قيمة المبيعات (Total Revenue)',
+              'عمولات أمازون (Commission)',
+              'المكافآت الإضافية (Bonus)',
+            ],
+            rows:
+                earningsRows.map((r) => r.toSheetTsvRow().split('\t')).toList(),
+            warnings: const [],
+          );
+        }
       }
 
       if (!mounted) return;
@@ -1220,101 +1099,112 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
                 const SizedBox(height: 8),
                 Text(
                   'اختر لقطة شاشة التقطتها بنفسك من صفحة الأرباح أو الحملات، '
-                  'استخرج البيانات عبر Gemini، راجعها ثم انسخها إلى الشيت.',
+                  'استخرج القيم، راجعها ثم أكمل الاستيراد أو النسخ إلى الشيت.',
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 12),
-                Card(
-                  color: _backendAvailable == true
-                      ? colors.secondaryContainer
-                      : _backendAvailable == false
-                          ? colors.errorContainer
-                          : colors.surfaceContainerHighest,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(child: Text(_backendStatus)),
-                        IconButton(
-                          tooltip: 'فحص الاتصال',
-                          onPressed: _isLoading ? null : _refreshBackendStatus,
-                          icon: const Icon(Icons.refresh_rounded),
-                        ),
-                      ],
+                if (_extractionMode == ReportExtractionMode.gemini)
+                  Card(
+                    color: _activeGeminiProfile != null
+                        ? colors.secondaryContainer
+                        : colors.surfaceContainerHighest,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _geminiKeyStatus ??
+                                  'جارٍ فحص ملفات مفاتيح Gemini المحفوظة…',
+                            ),
+                          ),
+                          if (_geminiProfileNames.isNotEmpty)
+                            SizedBox(
+                              width: 190,
+                              child: DropdownButtonFormField<String>(
+                                initialValue: _activeGeminiProfile,
+                                isExpanded: true,
+                                decoration: const InputDecoration(
+                                  labelText: 'المفتاح النشط',
+                                  border: OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                                items: _geminiProfileNames
+                                    .map(
+                                      (name) => DropdownMenuItem(
+                                        value: name,
+                                        child: Text(
+                                          name,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged:
+                                    _isLoading ? null : _selectGeminiProfile,
+                              ),
+                            ),
+                          TextButton.icon(
+                            onPressed: _isLoading
+                                ? null
+                                : () => _configureGeminiKey(
+                                      initialName: _activeGeminiProfile,
+                                    ),
+                            icon: const Icon(Icons.key_rounded),
+                            label: const Text('إضافة / تحديث'),
+                          ),
+                          if (_activeGeminiProfile != null)
+                            IconButton(
+                              tooltip: 'حذف الملف النشط',
+                              onPressed:
+                                  _isLoading ? null : _deleteGeminiProfile,
+                              icon: const Icon(Icons.delete_outline_rounded),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
+                if (_extractionMode == ReportExtractionMode.local)
+                  Card(
+                    color: _backendAvailable == true
+                        ? colors.secondaryContainer
+                        : _backendAvailable == false
+                            ? colors.errorContainer
+                            : colors.surfaceContainerHighest,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(child: Text(_backendStatus)),
+                          IconButton(
+                            tooltip: 'فحص الاتصال',
+                            onPressed: _isLoading
+                                ? null
+                                : () => _refreshBackendStatus(
+                                      tryStartBackend: true,
+                                    ),
+                            icon: const Icon(Icons.refresh_rounded),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          'مفاتيح Gemini',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 8),
-                        DropdownButtonFormField<String>(
-                          initialValue: _keyCollection.activeId,
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            labelText: 'المفتاح المستخدم للتحليل',
-                            border: OutlineInputBorder(),
-                          ),
-                          hint: Text(
-                            _isKeyVaultLoading
-                                ? 'جارٍ تحميل المفاتيح الآمنة…'
-                                : 'أضف مفتاح Gemini للبدء',
-                          ),
-                          items: _keyCollection.keys
-                              .map(
-                                (key) => DropdownMenuItem(
-                                  value: key.id,
-                                  child: Text(
-                                    '${key.name} (${key.maskedSecret})',
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                          onChanged:
-                              _isKeyVaultLoading ? null : _selectGeminiKey,
-                        ),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 8,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: _isKeyVaultLoading || _isLoading
-                                  ? null
-                                  : _addGeminiKey,
-                              icon: const Icon(Icons.add_rounded),
-                              label: const Text('إضافة مفتاح'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed:
-                                  _keyCollection.activeKey == null || _isLoading
-                                      ? null
-                                      : _removeActiveGeminiKey,
-                              icon: const Icon(Icons.delete_outline_rounded),
-                              label: const Text('حذف المفتاح المحدد'),
-                            ),
-                          ],
-                        ),
-                        if (_keyError != null) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            _keyError!,
-                            style: TextStyle(color: colors.error),
-                          ),
-                        ],
-                      ],
+                    child: Text(
+                      _extractionMode == ReportExtractionMode.gemini
+                          ? 'وضع Gemini السحابي: عند الاستخراج ستُرسل الصورة إلى Google عبر HTTPS. '
+                              'قد تُطبّق رسوم أو حدود استخدام حسب إعدادات حسابك. '
+                              'راجع النتائج قبل اعتمادها.'
+                          : 'وضع OCR المحلي: تُعالج الصورة على هذا الجهاز عبر الخدمة المحلية، '
+                              'ولا تُرسل إلى Google. راجع النتائج قبل اعتمادها.',
                     ),
                   ),
                 ),
@@ -1325,6 +1215,33 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        DropdownButtonFormField<ReportExtractionMode>(
+                          initialValue: _extractionMode,
+                          decoration: const InputDecoration(
+                            labelText: 'محرك استخراج البيانات',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: ReportExtractionMode.values
+                              .map(
+                                (mode) => DropdownMenuItem(
+                                  value: mode,
+                                  child: Text(mode.label),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: _isLoading
+                              ? null
+                              : (value) {
+                                  if (value == null) return;
+                                  setState(() => _extractionMode = value);
+                                  if (value == ReportExtractionMode.local) {
+                                    unawaited(_refreshBackendStatus(
+                                      tryStartBackend: true,
+                                    ));
+                                  }
+                                },
+                        ),
+                        const SizedBox(height: 12),
                         DropdownButtonFormField<ReportImageType>(
                           initialValue: _reportType,
                           decoration: const InputDecoration(
@@ -1364,10 +1281,7 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
                               label: Text(_imageName ?? 'اختيار لقطة شاشة'),
                             ),
                             FilledButton.icon(
-                              onPressed: _isLoading ||
-                                      _imageBytes == null ||
-                                      _keyCollection.activeKey == null ||
-                                      !_hasConsent
+                              onPressed: _isLoading || _imageBytes == null
                                   ? null
                                   : _extract,
                               icon: _isLoading
@@ -1381,7 +1295,10 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
                                   : const Icon(Icons.document_scanner_outlined),
                               label: Text(
                                 _isLoading
-                                    ? 'جارٍ تحليل الصورة…'
+                                    ? _extractionMode ==
+                                            ReportExtractionMode.gemini
+                                        ? 'جارٍ إرسال الصورة إلى Gemini…'
+                                        : 'جارٍ الاستخراج محلياً…'
                                     : 'استخراج البيانات',
                               ),
                             ),
@@ -1450,23 +1367,6 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
                             ),
                           ],
                         ),
-                        if (_imageBytes != null) ...[
-                          const SizedBox(height: 12),
-                          CheckboxListTile(
-                            contentPadding: EdgeInsets.zero,
-                            value: _hasConsent,
-                            onChanged: _isLoading
-                                ? null
-                                : (value) => setState(
-                                    () => _hasConsent = value ?? false),
-                            title: const Text(
-                              'أوافق على إرسال هذه الصورة إلى Gemini لتحليلها.',
-                            ),
-                            subtitle: const Text(
-                              'راجع الصورة أولاً. إذا ظهرت بيانات شخصية، قصّها أو أخفِها بأداة خارجية ثم اختر النسخة المنقحة قبل الإرسال.',
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                   ),
@@ -1476,16 +1376,8 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(12),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxHeight: 360),
-                        child: Image.memory(
-                          Uint8List.fromList(_imageBytes!),
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => const Text(
-                            'تعذر عرض الصورة المختارة.',
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
+                      child: _ZoomableImage(
+                        bytes: Uint8List.fromList(_imageBytes!),
                       ),
                     ),
                   ),
@@ -1587,9 +1479,12 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
                     const SizedBox(height: 8),
                   ],
                   Card(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
+                    clipBehavior: Clip.antiAlias,
+                    child: AppTableScrollWrapper(
+                      tableTitle: 'جدول التقرير المستخرج',
                       child: DataTable(
+                        dataRowMinHeight: 64,
+                        dataRowMaxHeight: 72,
                         columns: [
                           for (final column in report.columns)
                             DataColumn(label: Text(column)),
@@ -1660,8 +1555,9 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
                     const SizedBox(height: 6),
                     Card(
                       color: colors.tertiaryContainer.withValues(alpha: 0.45),
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
+                      clipBehavior: Clip.antiAlias,
+                      child: AppTableScrollWrapper(
+                        tableTitle: 'صفوف إضافية في الملف المستورد',
                         child: DataTable(
                           columns: [
                             const DataColumn(label: Text('الصف')),
@@ -1694,17 +1590,126 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
                         style: TextStyle(color: colors.tertiary),
                       ),
                     ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 24),
                   Text(
                     'راجع الأرقام يدوياً قبل اللصق. سيتم نسخ العناوين والصفوف الظاهرة بصيغة TSV.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
+                  const SizedBox(height: 120),
                 ],
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ZoomableImage extends StatefulWidget {
+  const _ZoomableImage({required this.bytes});
+  final Uint8List bytes;
+
+  @override
+  State<_ZoomableImage> createState() => _ZoomableImageState();
+}
+
+class _ZoomableImageState extends State<_ZoomableImage> {
+  final TransformationController _controller = TransformationController();
+  double _height = 360;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _zoomBy(double factor) {
+    final current = _controller.value.getMaxScaleOnAxis();
+    final target = (current * factor).clamp(1.0, 8.0);
+    final ratio = target / current;
+    final size = context.size ?? const Size(400, 360);
+    final center = Offset(size.width / 2, _height / 2);
+    final m = _controller.value.clone();
+    m.translate(center.dx, center.dy);
+    m.scale(ratio, ratio);
+    m.translate(-center.dx, -center.dy);
+    _controller.value = m;
+  }
+
+  void _reset() => _controller.value = Matrix4.identity();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.image_search_rounded, size: 18),
+            const SizedBox(width: 6),
+            const Expanded(
+              child: Text(
+                'اسحب لتحريك الصورة • عجلة الماوس للتكبير • نقر مزدوج للإعادة',
+                style: TextStyle(fontSize: 12),
+              ),
+            ),
+            IconButton(
+              tooltip: 'تصغير',
+              icon: const Icon(Icons.zoom_out_rounded, size: 20),
+              onPressed: () => _zoomBy(1 / 1.25),
+            ),
+            IconButton(
+              tooltip: 'تكبير',
+              icon: const Icon(Icons.zoom_in_rounded, size: 20),
+              onPressed: () => _zoomBy(1.25),
+            ),
+            IconButton(
+              tooltip: 'إعادة الضبط',
+              icon: const Icon(Icons.fit_screen_rounded, size: 20),
+              onPressed: _reset,
+            ),
+            IconButton(
+              tooltip: 'زيادة ارتفاع العرض',
+              icon: const Icon(Icons.unfold_more_rounded, size: 20),
+              onPressed: () =>
+                  setState(() => _height = (_height + 120).clamp(240, 840)),
+            ),
+            IconButton(
+              tooltip: 'تقليل ارتفاع العرض',
+              icon: const Icon(Icons.unfold_less_rounded, size: 20),
+              onPressed: () =>
+                  setState(() => _height = (_height - 120).clamp(240, 840)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: SizedBox(
+            height: _height,
+            child: GestureDetector(
+              onDoubleTap: _reset,
+              child: InteractiveViewer(
+                transformationController: _controller,
+                minScale: 1.0,
+                maxScale: 8.0,
+                constrained: true,
+                child: Image.memory(
+                  widget.bytes,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Center(
+                    child: Text(
+                      'تعذر عرض الصورة المختارة.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
