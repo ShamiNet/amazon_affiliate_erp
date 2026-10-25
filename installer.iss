@@ -1,7 +1,7 @@
 [Setup]
 AppId={{7B1E3F52-4C0A-4E8B-9D55-3A2C6E1F8A10}
 AppName=Amazon Affiliate ERP
-AppVersion=1.0.3
+AppVersion=1.0.4
 AppPublisher=ShamiNet
 DefaultDirName={autopf}\Amazon Affiliate ERP
 DefaultGroupName=Amazon Affiliate ERP

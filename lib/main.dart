@@ -5073,6 +5073,46 @@ class BeneficiariesAndCatalogScreen extends StatelessWidget {
   final AppDataController controller;
   const BeneficiariesAndCatalogScreen({super.key, required this.controller});
 
+  Future<void> _confirmDeleteBeneficiary(
+    BuildContext context,
+    BeneficiaryModel b,
+  ) async {
+    final c = controller;
+    final campaignsCount =
+        c.campaigns.where((x) => x.beneficiary.trim() == b.name.trim()).length;
+    final productsCount = c.productsCatalog
+        .where((x) => x.beneficiary.trim() == b.name.trim())
+        .length;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('حذف المستفيد'),
+        content: Text(
+          'هل تريد حذف المستفيد "${b.name}" (${b.accountCodeRange})؟\n'
+          '${campaignsCount > 0 || productsCount > 0 ? '\n⚠️ مرتبط بـ $campaignsCount حملة و$productsCount منتج في الدليل. '
+              'لن تُحذف هذه السجلات لكنها ستفقد ربطها بالمستفيد في الحسابات.' : ''}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFF43F5E),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      c.beneficiaries.remove(b);
+      c.saveToDisk();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = controller;
@@ -5179,10 +5219,28 @@ class BeneficiariesAndCatalogScreen extends StatelessWidget {
                               buildStatusBadge(m['statusAlert'] as String),
                             ),
                             DataCell(
-                              IconButton(
-                                icon: const Icon(Icons.edit_rounded, size: 18),
-                                onPressed: () => _showBeneficiaryDialog(context,
-                                    existing: b),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    tooltip: 'تعديل',
+                                    icon: const Icon(Icons.edit_rounded,
+                                        size: 18),
+                                    onPressed: () => _showBeneficiaryDialog(
+                                        context,
+                                        existing: b),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'حذف المستفيد',
+                                    icon: const Icon(
+                                      Icons.delete_outline_rounded,
+                                      size: 18,
+                                      color: Color(0xFFF43F5E),
+                                    ),
+                                    onPressed: () =>
+                                        _confirmDeleteBeneficiary(context, b),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
@@ -6320,6 +6378,181 @@ class ProxiesScreen extends StatefulWidget {
 class _ProxiesScreenState extends State<ProxiesScreen> {
   String _countryFilter = 'الكل';
 
+  static const _countryNames = {
+    'fr': 'فرنسا',
+    'us': 'أمريكا',
+    'gb': 'بريطانيا',
+    'uk': 'بريطانيا',
+    'de': 'ألمانيا',
+    'ca': 'كندا',
+    'it': 'إيطاليا',
+    'es': 'إسبانيا',
+    'nl': 'هولندا',
+    'ae': 'الإمارات',
+    'sa': 'السعودية',
+    'au': 'أستراليا',
+  };
+
+  Widget _copyCell(String text, String label, TextStyle style) {
+    return Tooltip(
+      message: 'انقر للنسخ',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(6),
+        onTap: () => copyToClipboard(context, text, label),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+          child: Text(text, style: style),
+        ),
+      ),
+    );
+  }
+
+  // يدعم: user:pass@host:port وكذلك protocol://user:pass@host:port
+  ProxyModel? _parseProxy(String raw, String country, String protocol) {
+    var s = raw.trim();
+    var proto = protocol;
+    final schemeIdx = s.indexOf('://');
+    if (schemeIdx > 0) {
+      proto = s.substring(0, schemeIdx).toLowerCase();
+      s = s.substring(schemeIdx + 3);
+    }
+    final at = s.lastIndexOf('@');
+    if (at <= 0) return null;
+    final cred = s.substring(0, at);
+    final hostPort = s.substring(at + 1);
+    final colon = cred.indexOf(':');
+    final hp = hostPort.lastIndexOf(':');
+    if (colon <= 0 || hp <= 0) return null;
+    final port = int.tryParse(hostPort.substring(hp + 1));
+    if (port == null) return null;
+    final username = cred.substring(0, colon);
+    var cc = country.trim();
+    if (cc.isEmpty) {
+      final m =
+          RegExp(r'cr\.([a-z]{2})', caseSensitive: false).firstMatch(username);
+      if (m != null) {
+        final code = m.group(1)!.toLowerCase();
+        cc = _countryNames[code] ?? code.toUpperCase();
+      } else {
+        cc = 'غير محدد';
+      }
+    }
+    return ProxyModel(
+      country: cc,
+      isUsed: false,
+      portType: 'ثابت',
+      protocol: proto,
+      username: username,
+      password: cred.substring(colon + 1),
+      host: hostPort.substring(0, hp),
+      port: port,
+    );
+  }
+
+  Future<void> _showAddProxyDialog() async {
+    final c = widget.controller;
+    final rawCtl = TextEditingController();
+    final countryCtl = TextEditingController();
+    String protocol = 'http';
+    String? error;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          title: const Text('إضافة بروكسي جديد'),
+          content: SizedBox(
+            width: 520,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: rawCtl,
+                  autofocus: true,
+                  textDirection: TextDirection.ltr,
+                  decoration: InputDecoration(
+                    labelText: 'الصق البروكسي كاملاً',
+                    hintText: 'username:password@host:port',
+                    errorText: error,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: countryCtl,
+                  decoration: const InputDecoration(
+                    labelText: 'الدولة (اختياري - تُستنتج تلقائياً)',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: protocol,
+                  decoration: const InputDecoration(labelText: 'البروتوكول'),
+                  items: const [
+                    DropdownMenuItem(value: 'http', child: Text('HTTP')),
+                    DropdownMenuItem(value: 'https', child: Text('HTTPS')),
+                    DropdownMenuItem(value: 'socks5', child: Text('SOCKS5')),
+                  ],
+                  onChanged: (v) => setDlg(() => protocol = v ?? 'http'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final p = _parseProxy(rawCtl.text, countryCtl.text, protocol);
+                if (p == null) {
+                  setDlg(() =>
+                      error = 'الصيغة غير صحيحة، استخدم user:pass@host:port');
+                  return;
+                }
+                if (c.proxies
+                    .any((e) => e.fullProxyString == p.fullProxyString)) {
+                  setDlg(() => error = 'هذا البروكسي مسجّل مسبقاً');
+                  return;
+                }
+                c.proxies.add(p);
+                c.saveToDisk();
+                Navigator.pop(ctx);
+                setState(() {});
+              },
+              child: const Text('إضافة'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDelete(ProxyModel p) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('حذف البروكسي'),
+        content: Text('هل تريد حذف بروكسي ${p.country}؟'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      widget.controller.proxies.remove(p);
+      widget.controller.saveToDisk();
+      if (mounted) setState(() {});
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
@@ -6362,15 +6595,27 @@ class _ProxiesScreenState extends State<ProxiesScreen> {
             ],
           ),
           const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          Row(
             children: [
-              ...countries.map(
-                (cnt) => ChoiceChip(
-                  label: Text(cnt),
-                  selected: _countryFilter == cnt,
-                  onSelected: (_) => setState(() => _countryFilter = cnt),
+              FilledButton.icon(
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('إضافة بروكسي'),
+                onPressed: _showAddProxyDialog,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    ...countries.map(
+                      (cnt) => ChoiceChip(
+                        label: Text(cnt),
+                        selected: _countryFilter == cnt,
+                        onSelected: (_) => setState(() => _countryFilter = cnt),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -6417,9 +6662,10 @@ class _ProxiesScreenState extends State<ProxiesScreen> {
                         DataCell(Text(p.portType)),
                         DataCell(Text(p.protocol.toUpperCase())),
                         DataCell(
-                          SelectableText(
+                          _copyCell(
                             p.fullProxyString,
-                            style: const TextStyle(
+                            'البروكسي (${p.country})',
+                            const TextStyle(
                               fontFamily: 'Consolas',
                               fontSize: 12,
                               color: Color(0xFF38BDF8),
@@ -6427,41 +6673,59 @@ class _ProxiesScreenState extends State<ProxiesScreen> {
                           ),
                         ),
                         DataCell(
-                          Text(
+                          _copyCell(
                             p.username,
-                            style: const TextStyle(fontFamily: 'Consolas'),
+                            'Username',
+                            const TextStyle(fontFamily: 'Consolas'),
                           ),
                         ),
                         DataCell(
-                          Text(
+                          _copyCell(
                             p.password,
-                            style: const TextStyle(fontFamily: 'Consolas'),
+                            'Password',
+                            const TextStyle(fontFamily: 'Consolas'),
                           ),
                         ),
                         DataCell(
-                          Text(
+                          _copyCell(
                             p.host,
-                            style: const TextStyle(fontFamily: 'Consolas'),
+                            'Host',
+                            const TextStyle(fontFamily: 'Consolas'),
                           ),
                         ),
                         DataCell(
-                          Text(
+                          _copyCell(
                             '${p.port}',
-                            style: const TextStyle(
+                            'Port',
+                            const TextStyle(
                               fontFamily: 'Consolas',
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                         ),
                         DataCell(
-                          FilledButton.tonalIcon(
-                            icon: const Icon(Icons.copy_rounded, size: 15),
-                            label: const Text('نسخ البروكسي'),
-                            onPressed: () => copyToClipboard(
-                              context,
-                              p.fullProxyString,
-                              'البروكسي (${p.country})',
-                            ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              FilledButton.tonalIcon(
+                                icon: const Icon(Icons.copy_rounded, size: 15),
+                                label: const Text('نسخ البروكسي'),
+                                onPressed: () => copyToClipboard(
+                                  context,
+                                  p.fullProxyString,
+                                  'البروكسي (${p.country})',
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: 'حذف',
+                                icon: const Icon(
+                                  Icons.delete_outline_rounded,
+                                  size: 18,
+                                  color: Color(0xFFF43F5E),
+                                ),
+                                onPressed: () => _confirmDelete(p),
+                              ),
+                            ],
                           ),
                         ),
                       ],
