@@ -132,7 +132,36 @@ class GeminiReportExtractor {
 
   final HttpClient _httpClient;
 
+  static const _retryableStatuses = {429, 500, 502, 503, 504};
+  static const _maxAttempts = 4;
+
   Future<ExtractedReport> extract({
+    required String apiKey,
+    required List<int> imageBytes,
+    required String mimeType,
+    required ReportImageType reportType,
+    void Function(int attempt, int maxAttempts, Duration wait)? onRetry,
+  }) async {
+    for (var attempt = 1;; attempt++) {
+      try {
+        return await _extractOnce(
+          apiKey: apiKey,
+          imageBytes: imageBytes,
+          mimeType: mimeType,
+          reportType: reportType,
+        );
+      } on _RetryableGeminiException catch (e) {
+        if (attempt >= _maxAttempts) {
+          throw HttpException(e.message, uri: Uri.parse(_endpoint));
+        }
+        final wait = Duration(seconds: 2 * attempt * attempt);
+        onRetry?.call(attempt, _maxAttempts, wait);
+        await Future<void>.delayed(wait);
+      }
+    }
+  }
+
+  Future<ExtractedReport> _extractOnce({
     required String apiKey,
     required List<int> imageBytes,
     required String mimeType,
@@ -175,10 +204,11 @@ class GeminiReportExtractor {
         .timeout(const Duration(seconds: 30));
     final decoded = _decodeJsonObject(responseText);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpException(
-        _apiErrorMessage(response.statusCode, decoded),
-        uri: Uri.parse(_endpoint),
-      );
+      final message = _apiErrorMessage(response.statusCode, decoded);
+      if (_retryableStatuses.contains(response.statusCode)) {
+        throw _RetryableGeminiException(message);
+      }
+      throw HttpException(message, uri: Uri.parse(_endpoint));
     }
 
     final candidates = decoded['candidates'];
@@ -273,6 +303,18 @@ Keep all cell values as strings. Preserve the displayed digits, decimal separato
       return 'تم تجاوز حد طلبات Gemini أو الحصة المتاحة. حاول لاحقاً. '
           '${detail ?? ''}';
     }
+    if (statusCode == 500 ||
+        statusCode == 502 ||
+        statusCode == 503 ||
+        statusCode == 504) {
+      return 'خوادم Gemini مزدحمة حالياً (HTTP $statusCode) وفشلت كل '
+          'المحاولات التلقائية. أعد المحاولة بعد دقائق أو استخدم المحرك المحلي.';
+    }
     return 'فشل طلب Gemini (HTTP $statusCode). ${detail ?? ''}';
   }
+}
+
+class _RetryableGeminiException implements Exception {
+  const _RetryableGeminiException(this.message);
+  final String message;
 }

@@ -674,6 +674,20 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
           imageBytes: bytes,
           mimeType: mimeType,
           reportType: _reportType,
+          onRetry: (attempt, max, wait) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Gemini مزدحم — إعادة المحاولة تلقائياً بعد '
+                    '${wait.inSeconds} ث (المحاولة $attempt من $max)',
+                  ),
+                  duration: wait,
+                ),
+              );
+          },
         );
       } else {
         report = await _service.extract(
@@ -1617,9 +1631,24 @@ class _ZoomableImage extends StatefulWidget {
 class _ZoomableImageState extends State<_ZoomableImage> {
   final TransformationController _controller = TransformationController();
   double _height = 360;
+  bool _ctrlDown = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrlDown = HardwareKeyboard.instance.isControlPressed;
+    HardwareKeyboard.instance.addHandler(_onKey);
+  }
+
+  bool _onKey(KeyEvent event) {
+    final down = HardwareKeyboard.instance.isControlPressed;
+    if (down != _ctrlDown && mounted) setState(() => _ctrlDown = down);
+    return false;
+  }
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
     _controller.dispose();
     super.dispose();
   }
@@ -1650,7 +1679,7 @@ class _ZoomableImageState extends State<_ZoomableImage> {
             const SizedBox(width: 6),
             const Expanded(
               child: Text(
-                'اسحب لتحريك الصورة • عجلة الماوس للتكبير • نقر مزدوج للإعادة',
+                'اسحب لتحريك الصورة • Ctrl + عجلة الماوس للتكبير • نقر مزدوج للإعادة',
                 style: TextStyle(fontSize: 12),
               ),
             ),
@@ -1694,6 +1723,7 @@ class _ZoomableImageState extends State<_ZoomableImage> {
                 transformationController: _controller,
                 minScale: 1.0,
                 maxScale: 8.0,
+                scaleEnabled: _ctrlDown,
                 constrained: true,
                 child: Image.memory(
                   widget.bytes,
