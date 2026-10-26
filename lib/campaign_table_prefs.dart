@@ -12,6 +12,9 @@ class CampaignTablePrefs {
     Map<int, String>? columnFilters,
   }) : columnFilters = columnFilters ?? {};
 
+  final Map<int, bool> sortLevels = {};
+  final Set<int> hiddenColumns = {};
+  final Set<int> hiddenSummaryColumns = {};
   int? sortColumn;
   bool ascending;
   String beneficiary;
@@ -20,6 +23,9 @@ class CampaignTablePrefs {
   final Map<int, String> columnFilters;
 
   Map<String, dynamic> toJson() => {
+        'hiddenColumns': hiddenColumns.toList(),
+        'hiddenSummaryColumns': hiddenSummaryColumns.toList(),
+        'sortLevels': sortLevels.map((k, v) => MapEntry('$k', v)),
         'sortColumn': sortColumn,
         'ascending': ascending,
         'beneficiary': beneficiary,
@@ -37,21 +43,44 @@ class CampaignTablePrefs {
         if (index != null && '$v'.trim().isNotEmpty) filters[index] = '$v';
       });
     }
-    return CampaignTablePrefs(
+    final prefs = CampaignTablePrefs(
       sortColumn: j['sortColumn'] is int ? j['sortColumn'] as int : null,
       ascending: j['ascending'] is bool ? j['ascending'] as bool : true,
       beneficiary: (j['beneficiary'] ?? 'الكل').toString(),
       search: (j['search'] ?? '').toString(),
-      dailySummary: j['dailySummary'] is bool ? j['dailySummary'] as bool : false,
+      dailySummary:
+          j['dailySummary'] is bool ? j['dailySummary'] as bool : false,
       columnFilters: filters,
     );
+    final levels = j['sortLevels'];
+    if (levels is Map) {
+      levels.forEach((k, v) {
+        final col = int.tryParse('$k');
+        if (col != null && col >= 0 && col < 19 && v is bool)
+          prefs.sortLevels[col] = v;
+      });
+    } else if (prefs.sortColumn != null) {
+      prefs.sortLevels[prefs.sortColumn!] = prefs.ascending;
+    }
+    void readHidden(String key, Set<int> target, int count) {
+      final raw = j[key];
+      if (raw is List) {
+        target.addAll(raw.whereType<int>().where((i) => i >= 0 && i < count));
+        if (target.length == count) target.remove(0);
+      }
+    }
+
+    readHidden('hiddenColumns', prefs.hiddenColumns, 21);
+    readHidden('hiddenSummaryColumns', prefs.hiddenSummaryColumns, 9);
+    return prefs;
   }
 
   static File _file() {
     final home = Platform.environment['USERPROFILE'] ??
         Platform.environment['HOME'] ??
         '.';
-    return File('$home${Platform.pathSeparator}amazon_affiliate_erp_ui_prefs.json');
+    return File(
+        '$home${Platform.pathSeparator}amazon_affiliate_erp_ui_prefs.json');
   }
 
   static CampaignTablePrefs load() {
@@ -59,7 +88,8 @@ class CampaignTablePrefs {
       final file = _file();
       if (file.existsSync()) {
         final data = jsonDecode(file.readAsStringSync());
-        if (data is Map<String, dynamic>) return CampaignTablePrefs.fromJson(data);
+        if (data is Map<String, dynamic>)
+          return CampaignTablePrefs.fromJson(data);
       }
     } catch (_) {}
     return CampaignTablePrefs();
@@ -95,8 +125,9 @@ bool matchesColumnFilter(String filter, String cell, num? numeric) {
           return numeric == v;
       }
     }
-    final range = RegExp(r'^(-?\d+(?:\.\d+)?)\s*(?:\.\.|to)\s*(-?\d+(?:\.\d+)?)$')
-        .firstMatch(f);
+    final range =
+        RegExp(r'^(-?\d+(?:\.\d+)?)\s*(?:\.\.|to)\s*(-?\d+(?:\.\d+)?)$')
+            .firstMatch(f);
     if (range != null) {
       return numeric >= double.parse(range.group(1)!) &&
           numeric <= double.parse(range.group(2)!);

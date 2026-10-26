@@ -17,14 +17,19 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' show AppExitResponse;
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import 'app_spreadsheet_backup.dart';
 import 'campaign_report_mapper.dart';
 import 'campaign_table_prefs.dart';
+import 'campaign_sheet_style.dart';
 import 'ai_section_advisor_dialog.dart';
 import 'gemini_advisor_service.dart';
+import 'erp_chat_dialog.dart';
+import 'erp_chat_context.dart';
 import 'report_backend_launcher.dart';
 import 'report_image_import_screen.dart';
 import 'app_table_scroll_wrapper.dart';
@@ -946,8 +951,8 @@ class AppDataController extends ChangeNotifier {
   bool isDarkMode = true;
   String lastSavedPath = '';
 
-  AppDataController() {
-    _initData();
+  AppDataController({bool initialize = true}) {
+    if (initialize) _initData();
   }
 
   File get _localDbFile {
@@ -1119,7 +1124,8 @@ class AppDataController extends ChangeNotifier {
 
   int get activeAdsterraCount => amazonAccounts
       .where(
-          (a) => a.promoStatus1 == 'جاري الترويج' && a.adsterraUrl.isNotEmpty)
+        (a) => a.promoStatus1 == 'جاري الترويج' && a.adsterraUrl.isNotEmpty,
+      )
       .length;
 
   int get linkedBanksCount => bankAccounts.where((b) => b.isLinked).length;
@@ -1278,7 +1284,15 @@ class WindowsDesktopShell extends StatefulWidget {
 }
 
 class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
+  final _chatSession = ErpChatSession();
+  @override
+  void dispose() {
+    _chatSession.dispose();
+    super.dispose();
+  }
+
   int _selectedIndex = 0;
+  int _reportRefreshRevision = 0;
   bool? _sidebarExpansionOverride;
 
   ErpSection _getCurrentErpSection(int index) {
@@ -1324,17 +1338,19 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
         return {
           'recentCampaigns': c.campaigns
               .take(15)
-              .map((camp) => {
-                    'date': camp.date,
-                    'product': camp.product,
-                    'account': camp.accountCode,
-                    'cost': camp.cost,
-                    'clicks': camp.clicks,
-                    'orders': camp.orderedItems,
-                    'earnings': camp.totalEarnings,
-                    'netProfit': camp.netProfit,
-                    'roi': camp.roi,
-                  })
+              .map(
+                (camp) => {
+                  'date': camp.date,
+                  'product': camp.product,
+                  'account': camp.accountCode,
+                  'cost': camp.cost,
+                  'clicks': camp.clicks,
+                  'orders': camp.orderedItems,
+                  'earnings': camp.totalEarnings,
+                  'netProfit': camp.netProfit,
+                  'roi': camp.roi,
+                },
+              )
               .toList(),
         };
       case ErpSection.amazonAccounts:
@@ -1342,12 +1358,14 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
           'activeCount': c.activeAmazonCount,
           'bannedCount': c.bannedAmazonCount,
           'accounts': c.amazonAccounts
-              .map((a) => {
-                    'code': a.code,
-                    'status': a.status,
-                    'product1': a.product1,
-                    'promo1': a.promoStatus1,
-                  })
+              .map(
+                (a) => {
+                  'code': a.code,
+                  'status': a.status,
+                  'product1': a.product1,
+                  'promo1': a.promoStatus1,
+                },
+              )
               .toList(),
         };
       default:
@@ -1561,8 +1579,9 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
                             ),
                             decoration: BoxDecoration(
                               color: selected
-                                  ? item.accent
-                                      .withOpacity(isDark ? 0.16 : 0.12)
+                                  ? item.accent.withOpacity(
+                                      isDark ? 0.16 : 0.12,
+                                    )
                                   : Colors.transparent,
                               borderRadius: BorderRadius.circular(11),
                               border: Border.all(
@@ -1577,8 +1596,9 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
                                   item.icon,
                                   color: selected
                                       ? item.accent
-                                      : theme.colorScheme.onSurface
-                                          .withOpacity(0.65),
+                                      : theme.colorScheme.onSurface.withOpacity(
+                                          0.65,
+                                        ),
                                   size: 22,
                                 ),
                                 if (isSidebarExpanded) ...[
@@ -1733,6 +1753,7 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
                       PlatformsAndTimingScreen(controller: c),
                       WorkflowStepsScreen(controller: c),
                       Builder(
+                        key: ValueKey(_reportRefreshRevision),
                         builder: (ctx) => ReportImageImportScreen(
                           onImportCampaigns: (rows) =>
                               showCampaignImportDialog(ctx, c, rows),
@@ -1834,6 +1855,25 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
             label: 'العائد ROI',
             value: '${(c.overallRoi * 100).toStringAsFixed(1)}%',
             color: const Color(0xFFA855F7),
+          ),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('تحديث الصفحة'),
+            onPressed: () => setState(() {
+              if (_selectedIndex == 10) _reportRefreshRevision++;
+            }),
+          ),
+          FilledButton.icon(
+            icon: const Icon(Icons.forum_outlined, size: 18),
+            label: const Text('محادثة الذكاء الاصطناعي'),
+            onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) => ErpChatDialog(
+                      session: _chatSession,
+                      initialScope: _selectedIndex.toString(),
+                      contextProvider: (scope) => buildErpChatContext(
+                          widget.controller.toFullJsonMap(), scope),
+                    )),
           ),
           AiSectionAdvisorButton(
             section: _getCurrentErpSection(_selectedIndex),
@@ -1984,7 +2024,7 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
         type: FileType.custom,
         allowedExtensions: const ['xlsx'],
         fileName: 'amazon_affiliate_erp_$timestamp.xlsx',
-        dialogTitle: 'حفظ نسخة بيانات Excel',
+        dialogTitle: 'حفظ لوحة التحكم وبيانات Excel',
       );
       if (path == null || path.trim().isEmpty) return;
 
@@ -1995,16 +2035,16 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'تم تصدير جميع أقسام البيانات إلى $outputPath. لم تُضمّن كلمات المرور أو بيانات البنك الحساسة.',
+            'تم تصدير لوحة الحملات والمؤشرات وجميع أقسام البيانات إلى $outputPath. لم تُضمّن كلمات المرور أو بيانات البنك الحساسة.',
           ),
           duration: const Duration(seconds: 6),
         ),
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر تصدير ملف Excel: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('تعذر تصدير ملف Excel: $error')));
     }
   }
 
@@ -2052,9 +2092,9 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر استيراد ملف الشيت: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('تعذر استيراد ملف الشيت: $error')));
     }
   }
 
@@ -2257,7 +2297,11 @@ class ResponsiveSplit extends StatelessWidget {
         if (constraints.maxWidth < breakpoint) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [first, SizedBox(height: spacing), second],
+            children: [
+              first,
+              SizedBox(height: spacing),
+              second,
+            ],
           );
         }
         return Row(
@@ -2688,10 +2732,7 @@ class ExecutiveDashboardScreen extends StatelessWidget {
                   children: [
                     const Row(
                       children: [
-                        Icon(
-                          Icons.bar_chart_rounded,
-                          color: Color(0xFF10B981),
-                        ),
+                        Icon(Icons.bar_chart_rounded, color: Color(0xFF10B981)),
                         SizedBox(width: 10),
                         Expanded(
                           child: Text(
@@ -2931,10 +2972,7 @@ class ExecutiveDashboardScreen extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(
                     subtitle,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade400,
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
                   ),
                 ],
               ),
@@ -2953,7 +2991,9 @@ class ExecutiveDashboardScreen extends StatelessWidget {
 
 class CampaignsInventoryScreen extends StatefulWidget {
   final AppDataController controller;
-  const CampaignsInventoryScreen({super.key, required this.controller});
+  final CampaignTablePrefs? tablePrefs;
+  const CampaignsInventoryScreen(
+      {super.key, required this.controller, this.tablePrefs});
 
   @override
   State<CampaignsInventoryScreen> createState() =>
@@ -2983,9 +3023,11 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
     'التوصية الذكية والملاحظات',
   ];
 
-  late final CampaignTablePrefs _prefs = CampaignTablePrefs.load();
-  late final TextEditingController _searchCtrl =
-      TextEditingController(text: _prefs.search);
+  late final CampaignTablePrefs _prefs =
+      widget.tablePrefs ?? CampaignTablePrefs.load();
+  late final TextEditingController _searchCtrl = TextEditingController(
+    text: _prefs.search,
+  );
   late String _selectedBeneficiary = _prefs.beneficiary;
   late String _searchQuery = _prefs.search;
   late bool _showDailySummaryView = _prefs.dailySummary;
@@ -3093,13 +3135,100 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
     _persist();
   }
 
+  static const _summaryColumnLabels = [
+    'التاريخ',
+    'عدد الحملات',
+    'إجمالي النقرات',
+    'إجمالي الطلبات',
+    'إجمالي تكلفة الحملات اليومية',
+    'إجمالي الأرباح اليومية',
+    'صافي الربح اليومي',
+    'نسبة العائد اليومي %',
+    'التقييم اليومي',
+  ];
+
+  List<int> _visibleColumnIndices(int count, {bool summary = false}) {
+    final hidden = summary ? _prefs.hiddenSummaryColumns : _prefs.hiddenColumns;
+    return [
+      for (var i = 0; i < count; i++)
+        if (!hidden.contains(i)) i
+    ];
+  }
+
+  List<T> _visibleColumns<T>(List<T> values, {bool summary = false}) => [
+        for (final i in _visibleColumnIndices(values.length, summary: summary))
+          values[i],
+      ];
+
+  Future<void> _chooseVisibleColumns() async {
+    final summary = _showDailySummaryView;
+    final labels =
+        summary ? _summaryColumnLabels : ['حذف', ..._columnLabels, 'إجراءات'];
+    final hidden = summary ? _prefs.hiddenSummaryColumns : _prefs.hiddenColumns;
+    await showDialog<void>(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+              builder: (ctx, updateDialog) => Directionality(
+                textDirection: TextDirection.rtl,
+                child: AlertDialog(
+                  title: const Text('إظهار / إخفاء الأعمدة'),
+                  content: SizedBox(
+                      width: 420,
+                      child: SingleChildScrollView(
+                          child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                              'حدّد الأعمدة التي تريد عرضها. تُحفظ اختياراتك تلقائيًا.'),
+                          for (var i = 0; i < labels.length; i++)
+                            CheckboxListTile(
+                              key:
+                                  ValueKey('column-visibility-' + i.toString()),
+                              dense: true,
+                              title: Text(labels[i]),
+                              value: !hidden.contains(i),
+                              onChanged: !hidden.contains(i) &&
+                                      hidden.length == labels.length - 1
+                                  ? null
+                                  : (visible) {
+                                      setState(() {
+                                        if (visible == true) {
+                                          hidden.remove(i);
+                                        } else {
+                                          hidden.add(i);
+                                        }
+                                      });
+                                      updateDialog(() {});
+                                      _persist();
+                                    },
+                            ),
+                        ],
+                      ))),
+                  actions: [
+                    TextButton(
+                        onPressed: () {
+                          setState(hidden.clear);
+                          updateDialog(() {});
+                          _persist();
+                        },
+                        child: const Text('إظهار الكل')),
+                    FilledButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('تم')),
+                  ],
+                ),
+              ),
+            ));
+  }
+
   DataColumn _sortableColumn(int col) {
     final active = _prefs.columnFilters.containsKey(col);
     return DataColumn(
       onSort: (_, asc) {
         setState(() {
-          _prefs.sortColumn = col;
-          _prefs.ascending = asc;
+          _prefs.sortLevels[col] = !(_prefs.sortLevels[col] ?? false);
+          _prefs.sortColumn = _prefs.sortLevels.keys.first;
+          _prefs.ascending = _prefs.sortLevels.values.first;
         });
         _persist();
       },
@@ -3107,6 +3236,10 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(_columnLabels[col]),
+          if (_prefs.sortLevels.containsKey(col))
+            Text(" " +
+                (_prefs.sortLevels.keys.toList().indexOf(col) + 1).toString() +
+                (_prefs.sortLevels[col]! ? "↑" : "↓")),
           const SizedBox(width: 2),
           InkWell(
             onTap: () => _editColumnFilter(col),
@@ -3117,7 +3250,7 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
               child: Icon(
                 active ? Icons.filter_alt_rounded : Icons.filter_alt_outlined,
                 size: 16,
-                color: active ? const Color(0xFF38BDF8) : null,
+                color: active ? const Color(0xFF6EE7B7) : Colors.white70,
               ),
             ),
           ),
@@ -3131,7 +3264,7 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
     final c = widget.controller;
     final beneficiariesList = [
       'الكل',
-      ...{...c.beneficiaries.map((b) => b.name)}
+      ...{...c.beneficiaries.map((b) => b.name)},
     ];
     if (!beneficiariesList.contains(_selectedBeneficiary)) {
       _selectedBeneficiary = 'الكل';
@@ -3160,12 +3293,14 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
       return true;
     }).toList();
 
-    final sortCol = _prefs.sortColumn;
-    if (sortCol != null && sortCol < _columnLabels.length) {
+    if (_prefs.sortLevels.isNotEmpty) {
       filtered.sort((a, b) {
-        final r =
-            _compareValues(_sortValue(a, sortCol), _sortValue(b, sortCol));
-        return _prefs.ascending ? r : -r;
+        for (final level in _prefs.sortLevels.entries) {
+          final r = _compareValues(
+              _sortValue(a, level.key), _sortValue(b, level.key));
+          if (r != 0) return level.value ? r : -r;
+        }
+        return a.seq.compareTo(b.seq);
       });
     }
 
@@ -3209,8 +3344,9 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       decoration: BoxDecoration(
-                        border:
-                            Border.all(color: Colors.grey.withOpacity(0.35)),
+                        border: Border.all(
+                          color: Colors.grey.withOpacity(0.35),
+                        ),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: DropdownButton<String>(
@@ -3249,9 +3385,42 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                       onPressed: () {
                         setState(() {
                           _prefs.columnFilters.clear();
+                          _prefs.sortLevels.clear();
+                          _selectedBeneficiary = 'الكل';
+                          _searchQuery = '';
+                          _searchCtrl.clear();
                           _prefs.sortColumn = null;
                           _prefs.ascending = true;
                         });
+                        _persist();
+                      },
+                    ),
+                  const Text(
+                      'اضغط عناوين الأعمدة لإضافة ترتيب حسب الأولوية؛ اضغط مجددًا لعكس الاتجاه'),
+                  for (final level in _prefs.sortLevels.entries)
+                    InputChip(
+                      label: Text(_columnLabels[level.key] +
+                          (level.value ? ' ↑' : ' ↓')),
+                      onDeleted: () {
+                        setState(() {
+                          _prefs.sortLevels.remove(level.key);
+                          _prefs.sortColumn = _prefs.sortLevels.isEmpty
+                              ? null
+                              : _prefs.sortLevels.keys.first;
+                          _prefs.ascending = _prefs.sortLevels.isEmpty
+                              ? true
+                              : _prefs.sortLevels.values.first;
+                        });
+                        _persist();
+                      },
+                    ),
+                  for (final filter in _prefs.columnFilters.entries)
+                    InputChip(
+                      label:
+                          Text(_columnLabels[filter.key] + ': ' + filter.value),
+                      onPressed: () => _editColumnFilter(filter.key),
+                      onDeleted: () {
+                        setState(() => _prefs.columnFilters.remove(filter.key));
                         _persist();
                       },
                     ),
@@ -3284,6 +3453,14 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
             child: Card(
               clipBehavior: Clip.antiAlias,
               child: AppTableScrollWrapper(
+                pinHeader: true,
+                extraActions: [
+                  TextButton.icon(
+                    icon: const Icon(Icons.view_column_outlined, size: 18),
+                    label: const Text('إظهار / إخفاء الأعمدة'),
+                    onPressed: _chooseVisibleColumns,
+                  ),
+                ],
                 tableTitle: _showDailySummaryView
                     ? 'ملخص الأرباح اليومية المجمّعة'
                     : 'سجل الحملات التفصيلي ومؤشرات الأداء',
@@ -3299,26 +3476,45 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
   }
 
   Widget _buildDetailedCampaignsTable(List<CampaignLogModel> list) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final visible = _visibleColumnIndices(_columnLabels.length + 2);
+    final fullSortIndex =
+        _prefs.sortColumn == null ? null : _prefs.sortColumn! + 1;
+    final visibleSortIndex =
+        fullSortIndex == null ? -1 : visible.indexOf(fullSortIndex);
     return DataTable(
-      headingRowHeight: 46,
-      dataRowMinHeight: 46,
-      dataRowMaxHeight: 54,
-      columnSpacing: 18,
-      sortColumnIndex:
-          _prefs.sortColumn == null ? null : _prefs.sortColumn! + 1,
+      border: campaignSheetBorder(dark),
+      headingRowColor: const WidgetStatePropertyAll(Color(0xFF075337)),
+      headingTextStyle: const TextStyle(
+          color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+      dataTextStyle: TextStyle(
+          color: dark ? const Color(0xFFE5EDE9) : const Color(0xFF23332C),
+          fontSize: 13),
+      horizontalMargin: 10,
+      showBottomBorder: true,
+      headingRowHeight: 44,
+      dataRowMinHeight: 40,
+      dataRowMaxHeight: 44,
+      columnSpacing: 14,
+      sortColumnIndex: visibleSortIndex < 0 ? null : visibleSortIndex,
       sortAscending: _prefs.ascending,
-      columns: [
+      columns: _visibleColumns<DataColumn>([
         const DataColumn(label: Text('حذف')),
         for (var i = 0; i < _columnLabels.length; i++) _sortableColumn(i),
         const DataColumn(label: Text('إجراءات')),
-      ],
+      ]),
       rows: list.map((camp) {
         final net = camp.netProfit;
         final roi = camp.roi;
         return DataRow(
-          cells: [
+          color:
+              WidgetStatePropertyAll(campaignDateColor(camp.date, dark: dark)),
+          cells: _visibleColumns<DataCell>([
             DataCell(
               IconButton(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.all(4),
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                 tooltip: 'حذف السطر #${camp.seq}',
                 icon: const Icon(
                   Icons.delete_outline_rounded,
@@ -3330,18 +3526,16 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
             ),
             DataCell(Text('${camp.seq}')),
             DataCell(
-              Text(
-                camp.date,
-                style: const TextStyle(fontFamily: 'Consolas'),
-              ),
+              Text(camp.date,
+                  style: TextStyle(
+                      fontFamily: 'Consolas',
+                      fontWeight: FontWeight.bold,
+                      color: campaignDateColor(camp.date,
+                          dark: dark, accent: true))),
             ),
+            DataCell(CampaignIdentityBadge(camp.beneficiary)),
             DataCell(
-              Text(
-                camp.beneficiary,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            DataCell(buildStatusBadge(camp.accountCode)),
+                CampaignIdentityBadge(camp.accountCode, accountCode: true)),
             DataCell(
               Text(
                 camp.product,
@@ -3405,15 +3599,20 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                 children: [
                   if (camp.adUrl.isNotEmpty)
                     IconButton(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.all(4),
+                      constraints:
+                          const BoxConstraints(minWidth: 32, minHeight: 32),
                       tooltip: 'نسخ رابط الإعلان: ${camp.adUrl}',
                       icon: const Icon(Icons.link_rounded, size: 18),
-                      onPressed: () => copyToClipboard(
-                        context,
-                        camp.adUrl,
-                        'رابط الإعلان',
-                      ),
+                      onPressed: () =>
+                          copyToClipboard(context, camp.adUrl, 'رابط الإعلان'),
                     ),
                   IconButton(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.all(4),
+                    constraints:
+                        const BoxConstraints(minWidth: 32, minHeight: 32),
                     tooltip:
                         'لصق أرباح أمازون من الحافظة مباشرة في هذه الحملة (#${camp.seq})',
                     icon: const Icon(
@@ -3425,15 +3624,20 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                         _pasteAmazonEarningsIntoCampaignRow(context, camp),
                   ),
                   IconButton(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.all(4),
+                    constraints:
+                        const BoxConstraints(minWidth: 32, minHeight: 32),
                     tooltip: 'نسخ صف أرباح هذه الحملة (مهيأ للصق في الشيت)',
-                    icon: const Icon(
-                      Icons.table_rows_outlined,
-                      size: 18,
-                    ),
+                    icon: const Icon(Icons.table_rows_outlined, size: 18),
                     onPressed: () =>
                         _copyCampaignEarningsForSheet(context, camp),
                   ),
                   IconButton(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.all(4),
+                    constraints:
+                        const BoxConstraints(minWidth: 32, minHeight: 32),
                     tooltip: 'تعديل الحملة',
                     icon: const Icon(Icons.edit_outlined, size: 18),
                     onPressed: () =>
@@ -3442,7 +3646,7 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                 ],
               ),
             ),
-          ],
+          ]),
         );
       }).toList(),
     );
@@ -3477,9 +3681,9 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
     try {
       await widget.controller.deleteCampaign(campaign);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تم حذف السطر #${campaign.seq}.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('تم حذف السطر #${campaign.seq}.')));
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -3495,8 +3699,20 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
     }
     final sortedDates = byDate.keys.toList()..sort();
 
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return DataTable(
-      columns: const [
+      border: campaignSheetBorder(dark),
+      headingRowHeight: 44,
+      dataRowMinHeight: 40,
+      dataRowMaxHeight: 44,
+      columnSpacing: 14,
+      headingRowColor: const WidgetStatePropertyAll(Color(0xFF075337)),
+      headingTextStyle: const TextStyle(
+          color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+      dataTextStyle: TextStyle(
+          color: dark ? const Color(0xFFE5EDE9) : const Color(0xFF23332C),
+          fontSize: 13),
+      columns: _visibleColumns<DataColumn>(const [
         DataColumn(label: Text('التاريخ')),
         DataColumn(label: Text('عدد الحملات')),
         DataColumn(label: Text('إجمالي النقرات')),
@@ -3506,7 +3722,7 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
         DataColumn(label: Text('صافي الربح اليومي')),
         DataColumn(label: Text('نسبة العائد اليومي %')),
         DataColumn(label: Text('التقييم اليومي')),
-      ],
+      ], summary: true),
       rows: sortedDates.map((d) {
         final items = byDate[d]!;
         final cost = items.fold(0.0, (s, x) => s + x.cost);
@@ -3517,7 +3733,8 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
         final orders = items.fold(0, (s, x) => s + x.orderedItems);
 
         return DataRow(
-          cells: [
+          color: WidgetStatePropertyAll(campaignDateColor(d, dark: dark)),
+          cells: _visibleColumns<DataCell>([
             DataCell(
               Text(
                 d,
@@ -3559,7 +3776,7 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                 net > 0 ? '🚀 يوم رابح وممتاز' : '🛑 خسارة يومية',
               ),
             ),
-          ],
+          ], summary: true),
         );
       }).toList(),
     );
@@ -3584,18 +3801,24 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
 
     final costCtrl = TextEditingController(text: '${existing?.cost ?? 0.0}');
     final clicksCtrl = TextEditingController(text: '${existing?.clicks ?? 0}');
-    final ordersCtrl =
-        TextEditingController(text: '${existing?.orderedItems ?? 0}');
-    final orderedRevCtrl =
-        TextEditingController(text: '${existing?.orderedRevenue ?? 0.0}');
-    final shippedCtrl =
-        TextEditingController(text: '${existing?.shippedItems ?? 0}');
-    final returnedCtrl =
-        TextEditingController(text: '${existing?.returnedItems ?? 0}');
-    final totalRevCtrl =
-        TextEditingController(text: '${existing?.totalRevenue ?? 0.0}');
-    final commCtrl =
-        TextEditingController(text: '${existing?.commission ?? 0.0}');
+    final ordersCtrl = TextEditingController(
+      text: '${existing?.orderedItems ?? 0}',
+    );
+    final orderedRevCtrl = TextEditingController(
+      text: '${existing?.orderedRevenue ?? 0.0}',
+    );
+    final shippedCtrl = TextEditingController(
+      text: '${existing?.shippedItems ?? 0}',
+    );
+    final returnedCtrl = TextEditingController(
+      text: '${existing?.returnedItems ?? 0}',
+    );
+    final totalRevCtrl = TextEditingController(
+      text: '${existing?.totalRevenue ?? 0.0}',
+    );
+    final commCtrl = TextEditingController(
+      text: '${existing?.commission ?? 0.0}',
+    );
     final bonusCtrl = TextEditingController(text: '${existing?.bonus ?? 0.0}');
     bool isPending = existing?.isPending ?? false;
 
@@ -3636,8 +3859,9 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                         Expanded(
                           flex: 2,
                           child: DropdownButtonFormField<String>(
-                            value: c.productsCatalog
-                                    .any((p) => p.product == selectedProduct)
+                            value: c.productsCatalog.any(
+                              (p) => p.product == selectedProduct,
+                            )
                                 ? selectedProduct
                                 : null,
                             decoration: const InputDecoration(
@@ -3760,11 +3984,13 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                         ),
                         onPressed: () async {
                           try {
-                            final data =
-                                await Clipboard.getData(Clipboard.kTextPlain);
+                            final data = await Clipboard.getData(
+                              Clipboard.kTextPlain,
+                            );
                             final text = data?.text ?? '';
-                            final parsed =
-                                parseAmazonEarningsFromClipboardText(text);
+                            final parsed = parseAmazonEarningsFromClipboardText(
+                              text,
+                            );
                             if (parsed.isEmpty) return;
                             final r = parsed.reduce((a, b) => a + b);
                             setModalState(() {
@@ -3974,16 +4200,11 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
       }
       final rows = parseAmazonEarningsFromClipboardText(text);
       if (!context.mounted) return;
-      await showAmazonEarningsImportDialog(
-        context,
-        widget.controller,
-        rows,
-      );
+      await showAmazonEarningsImportDialog(context, widget.controller, rows);
     } on FormatException catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message)),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -4071,14 +4292,12 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
       );
     } on FormatException catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message)),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر لصق الأرباح: $e')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('تعذر لصق الأرباح: $e')));
     }
   }
 }
@@ -4092,6 +4311,7 @@ Future<void> showCampaignImportDialog(
   AppDataController c,
   List<ParsedCampaignRow> rows,
 ) async {
+  if (rows.isEmpty) return;
   final catalog = c.productsCatalog;
   final entries = <_CampaignImportEntry>[];
   for (final row in rows) {
@@ -4116,9 +4336,10 @@ Future<void> showCampaignImportDialog(
   // "تاريخ البدء" في التقرير هو تاريخ إنشاء الحملة وليس تاريخ الإحصائيات،
   // لذلك يختار المستخدم تاريخ الإحصائيات (الافتراضي: أمس).
   final yesterday = DateTime.now().subtract(const Duration(days: 1));
-  var statsDate =
-      '${yesterday.year}-${yesterday.month.toString().padLeft(2, '0')}-'
-      '${yesterday.day.toString().padLeft(2, '0')}';
+  var statsDate = rows.map((r) => r.date).toSet().length == 1
+      ? rows.first.date
+      : '${yesterday.year}-${yesterday.month.toString().padLeft(2, '0')}-'
+          '${yesterday.day.toString().padLeft(2, '0')}';
   bool isDuplicate(_CampaignImportEntry e) => c.campaigns.any(
         (x) =>
             x.date == statsDate &&
@@ -4167,13 +4388,43 @@ Future<void> showCampaignImportDialog(
                 for (final e in entries)
                   CheckboxListTile(
                     value: e.selected,
-                    onChanged: (v) =>
-                        setModalState(() => e.selected = v ?? false),
+                    onChanged: e.catalog == null
+                        ? null
+                        : (v) => setModalState(() => e.selected = v ?? false),
+                    secondary: IconButton(
+                      tooltip: 'اختيار المنتج والبروفايل المستهدف',
+                      icon: const Icon(Icons.manage_accounts_outlined),
+                      onPressed: () async {
+                        final chosen = await showDialog<ProductCatalogModel>(
+                          context: ctx,
+                          builder: (pickCtx) => SimpleDialog(
+                            title: Text('ربط ${e.row.campaignName}'),
+                            children: [
+                              for (final p in catalog)
+                                SimpleDialogOption(
+                                  onPressed: () => Navigator.pop(pickCtx, p),
+                                  child: Text(
+                                    '${p.accountCode} • ${p.product} • ${p.profile}',
+                                  ),
+                                ),
+                            ],
+                          ),
+                        );
+                        if (chosen != null)
+                          setModalState(() {
+                            e.catalog = chosen;
+                            e.accountCode = chosen.accountCode;
+                            e.productName = chosen.product;
+                            e.selected = true;
+                          });
+                      },
+                    ),
                     title: Text(
-                        '$statsDate • ${e.accountCode} • ${e.productName}'),
+                      '$statsDate • ${e.accountCode} • ${e.productName}',
+                    ),
                     subtitle: Text(
-                      'التكلفة: \$${e.row.cost.toStringAsFixed(3)} • النقرات: ${e.row.clicks}'
-                      '${isDuplicate(e) ? ' • ⚠️ موجودة مسبقًا لهذا التاريخ' : ''}'
+                      'التكلفة: \$${e.row.cost.toStringAsFixed(3)} • البروفايل: ${e.catalog?.profile ?? 'غير محدد'}'
+                      '${isDuplicate(e) ? ' • موجودة: ستُحدّث التكلفة فقط' : ''}'
                       '${e.catalog == null ? ' • ⚠️ لم يُعثر على المنتج في الدليل' : ''}',
                     ),
                   ),
@@ -4187,7 +4438,7 @@ Future<void> showCampaignImportDialog(
             ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('إضافة المحدد'),
+              child: const Text('حفظ المحدد (إضافة / تحديث التكلفة)'),
             ),
           ],
         ),
@@ -4199,6 +4450,20 @@ Future<void> showCampaignImportDialog(
   var added = 0;
   for (final e in entries.where((e) => e.selected)) {
     final p = e.catalog;
+    final existing = c.campaigns
+        .where(
+          (x) =>
+              x.date == statsDate &&
+              x.accountCode == e.accountCode &&
+              x.product == e.productName,
+        )
+        .toList();
+    if (existing.length > 1) continue;
+    if (existing.length == 1) {
+      existing.single.cost = e.row.cost;
+      added++;
+      continue;
+    }
     c.campaigns.insert(
       0,
       CampaignLogModel(
@@ -4228,7 +4493,11 @@ Future<void> showCampaignImportDialog(
   if (added > 0) c.saveToDisk();
   if (context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('تمت إضافة $added حملة إلى الحملات اليومية.')),
+      SnackBar(
+        content: Text(
+          'تم حفظ $added حملة (إضافة أو تحديث التكلفة) في الحملات اليومية.',
+        ),
+      ),
     );
   }
 }
@@ -4244,9 +4513,9 @@ class _CampaignImportEntry {
   });
 
   final ParsedCampaignRow row;
-  final ProductCatalogModel? catalog;
-  final String productName;
-  final String accountCode;
+  ProductCatalogModel? catalog;
+  String productName;
+  String accountCode;
   final bool isDuplicate;
   bool selected;
 }
@@ -4293,7 +4562,7 @@ Future<void> showAmazonEarningsImportDialog(
   }
 
   var mergeAllRowsIntoOne = false;
-  var overwriteClicksEvenIfZero = false;
+  var overwriteClicksEvenIfZero = true;
 
   List<CampaignLogModel> filteredCampaignsForDate(String dateFilter) {
     final list = dateFilter == 'الكل'
@@ -4318,15 +4587,29 @@ Future<void> showAmazonEarningsImportDialog(
         candidates.any((x) => x.seq == preselectedCampaign.seq)) {
       return preselectedCampaign;
     }
-    final code = row.accountCode;
+    final accounts = c.amazonAccounts
+        .where((a) =>
+            a.storeId.trim().toLowerCase() == row.label.trim().toLowerCase())
+        .toList();
+    final code = accounts.length == 1
+        ? accounts.single.code.trim().toUpperCase()
+        : row.accountCode;
+    final profile =
+        accounts.length == 1 ? accounts.single.name.trim().toLowerCase() : '';
     final labelLower = row.label.toLowerCase().trim();
-    if (code.isNotEmpty) {
-      for (final camp in candidates) {
-        if (!alreadyAssignedSeqs.contains(camp.seq) &&
-            camp.accountCode.trim().toUpperCase() == code) {
-          return camp;
-        }
-      }
+    if (code.isNotEmpty || profile.isNotEmpty) {
+      final matches = candidates
+          .where((camp) =>
+              !alreadyAssignedSeqs.contains(camp.seq) &&
+              ((code.isNotEmpty &&
+                      camp.accountCode.trim().toUpperCase() == code) ||
+                  (profile.isNotEmpty &&
+                      camp.profile.trim().toLowerCase() == profile)))
+          .toList();
+      // Candidates are ordered: pending first, then latest date and sequence.
+      // A store summary applies to the profile; choose one destination, never
+      // copy its aggregate earnings to every product belonging to the account.
+      return matches.isNotEmpty ? matches.first : null;
     }
     if (labelLower.isNotEmpty) {
       for (final camp in candidates) {
@@ -4338,17 +4621,7 @@ Future<void> showAmazonEarningsImportDialog(
         }
       }
     }
-    for (final camp in candidates) {
-      if (!alreadyAssignedSeqs.contains(camp.seq) && camp.isPending) {
-        return camp;
-      }
-    }
-    for (final camp in candidates) {
-      if (!alreadyAssignedSeqs.contains(camp.seq)) {
-        return camp;
-      }
-    }
-    return candidates.isNotEmpty ? candidates.first : null;
+    return null;
   }
 
   List<_AmazonEarningsTargetEntry> buildEntries(
@@ -4361,14 +4634,25 @@ Future<void> showAmazonEarningsImportDialog(
     for (final r in sourceRows) {
       final matched = findBestCampaignMatch(r, candidates, usedSeqs);
       if (matched != null) usedSeqs.add(matched.seq);
+      final accounts = c.amazonAccounts
+          .where((a) =>
+              a.storeId.trim().toLowerCase() == r.label.trim().toLowerCase())
+          .toList();
+      final account = accounts.length == 1 ? accounts.single : null;
+      final code = (account?.code ?? r.accountCode).trim().toUpperCase();
+      final profile = account?.name.trim().toLowerCase() ?? '';
+      final products = c.productsCatalog
+          .where((p) =>
+              (code.isNotEmpty && p.accountCode.trim().toUpperCase() == code) ||
+              (profile.isNotEmpty && p.profile.trim().toLowerCase() == profile))
+          .toList();
       result.add(
         _AmazonEarningsTargetEntry(
           row: r,
-          selected: _earningsRowHasData(r),
+          selected: true,
           targetCampaignSeq: matched?.seq,
-          newCatalogProductId: matched == null && c.productsCatalog.isNotEmpty
-              ? c.productsCatalog.first.id
-              : null,
+          newCatalogProductId:
+              matched == null && products.isNotEmpty ? products.first.id : null,
         ),
       );
     }
@@ -4398,13 +4682,13 @@ Future<void> showAmazonEarningsImportDialog(
           child: AlertDialog(
             title: const Row(
               children: [
-                Icon(Icons.assignment_returned_rounded,
-                    color: Color(0xFF10B981)),
+                Icon(
+                  Icons.assignment_returned_rounded,
+                  color: Color(0xFF10B981),
+                ),
                 SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    'لصق أرباح أمازون في المكان المناسب ضمن الأرباح',
-                  ),
+                  child: Text('لصق أرباح أمازون في المكان المناسب ضمن الأرباح'),
                 ),
               ],
             ),
@@ -4471,16 +4755,18 @@ Future<void> showAmazonEarningsImportDialog(
                                           DateTime.tryParse(effectiveNewDate) ??
                                               yesterday,
                                       firstDate: DateTime(2020),
-                                      lastDate: DateTime.now()
-                                          .add(const Duration(days: 2)),
+                                      lastDate: DateTime.now().add(
+                                        const Duration(days: 2),
+                                      ),
                                     );
                                     if (picked != null) {
                                       final formatted =
                                           '${picked.year}-${picked.month.toString().padLeft(2, '0')}-'
                                           '${picked.day.toString().padLeft(2, '0')}';
                                       setModalState(() {
-                                        if (!existingDates
-                                            .contains(formatted)) {
+                                        if (!existingDates.contains(
+                                          formatted,
+                                        )) {
                                           existingDates.insert(0, formatted);
                                         }
                                         selectedDateFilter = formatted;
@@ -4520,7 +4806,7 @@ Future<void> showAmazonEarningsImportDialog(
                                 'استبدال النقرات حتى لو كانت نقرات أمازون صفراً (0)',
                               ),
                               subtitle: const Text(
-                                'افتراضياً: إذا كانت النقرات في صورة أمازون > 0 يتم تحديثها، وإذا كانت 0 نحتفظ بنقرات الحملة الإعلانية المسجلة سابقاً.',
+                                'مفعّل افتراضيًا: تُستبدل النقرات بقيمة تقرير أمازون حتى لو كانت 0. ألغِ التفعيل للاحتفاظ بالنقرات السابقة عند الصفر.',
                               ),
                               onChanged: (v) {
                                 setModalState(() {
@@ -4586,8 +4872,9 @@ Future<void> showAmazonEarningsImportDialog(
                                 ],
                               ),
                               Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
                                 child: Wrap(
                                   spacing: 14,
                                   runSpacing: 6,
@@ -4645,9 +4932,13 @@ Future<void> showAmazonEarningsImportDialog(
                                   c.productsCatalog,
                                 ),
                                 isExpanded: true,
-                                decoration: const InputDecoration(
+                                decoration: InputDecoration(
                                   labelText:
                                       'المكان المناسب ضمن الأرباح (اختر الحملة المستهدفة للصق الأرباح فيها)',
+                                  helperText: entries[i].targetCampaignSeq ==
+                                          null
+                                      ? 'لم يُعثر على الحساب أو البروفايل في السجل أو دليل المنتجات.'
+                                      : 'تحديد تلقائي للبروفايل: قيد التشغيل أولًا، ثم أحدث تسلسل في التاريخ المحدد؛ يمكنك تغيير الاختيار.',
                                   border: OutlineInputBorder(),
                                   isDense: true,
                                 ),
@@ -4731,8 +5022,9 @@ Future<void> showAmazonEarningsImportDialog(
   for (final e in entries.where((x) => x.selected)) {
     final r = e.row;
     if (e.targetCampaignSeq != null) {
-      final idx =
-          c.campaigns.indexWhere((camp) => camp.seq == e.targetCampaignSeq);
+      final idx = c.campaigns.indexWhere(
+        (camp) => camp.seq == e.targetCampaignSeq,
+      );
       if (idx != -1) {
         final camp = c.campaigns[idx];
         if (r.clicks > 0 || overwriteClicksEvenIfZero || camp.clicks == 0) {
@@ -4751,8 +5043,9 @@ Future<void> showAmazonEarningsImportDialog(
       }
     }
     if (e.newCatalogProductId != null) {
-      final prodIdx =
-          c.productsCatalog.indexWhere((p) => p.id == e.newCatalogProductId);
+      final prodIdx = c.productsCatalog.indexWhere(
+        (p) => p.id == e.newCatalogProductId,
+      );
       final prod = prodIdx != -1 ? c.productsCatalog[prodIdx] : null;
       c.campaigns.insert(
         0,
@@ -4833,44 +5126,77 @@ List<_EarningsInsight> _earningsInsights(
   final out = <_EarningsInsight>[];
 
   if (!_earningsRowHasData(r)) {
-    out.add(const _EarningsInsight(
-        1, 'كل القيم صفر: غالباً لم تُقرأ الصورة جيداً أو لا توجد مبيعات.'));
+    out.add(
+      const _EarningsInsight(
+        1,
+        'كل القيم صفر: غالباً لم تُقرأ الصورة جيداً أو لا توجد مبيعات.',
+      ),
+    );
   }
 
   final cr = r.conversionRate * 100;
   if (r.clicks > 0) {
     if (cr > 10) {
-      out.add(_EarningsInsight(2,
-          'معدل التحويل ${cr.toStringAsFixed(2)}% > 10%: شذوذ حرج وخطر على الحساب.'));
+      out.add(
+        _EarningsInsight(
+          2,
+          'معدل التحويل ${cr.toStringAsFixed(2)}% > 10%: شذوذ حرج وخطر على الحساب.',
+        ),
+      );
     } else if (cr > 5) {
-      out.add(_EarningsInsight(1,
-          'معدل التحويل ${cr.toStringAsFixed(2)}% > 5%: مرتفع، راقب الحساب.'));
+      out.add(
+        _EarningsInsight(
+          1,
+          'معدل التحويل ${cr.toStringAsFixed(2)}% > 5%: مرتفع، راقب الحساب.',
+        ),
+      );
     } else if (cr >= 1.5 && cr <= 3) {
-      out.add(_EarningsInsight(0,
-          'معدل التحويل ${cr.toStringAsFixed(2)}% ضمن النطاق الطبيعي (1.5%-3%).'));
+      out.add(
+        _EarningsInsight(
+          0,
+          'معدل التحويل ${cr.toStringAsFixed(2)}% ضمن النطاق الطبيعي (1.5%-3%).',
+        ),
+      );
     }
   } else if (r.orderedItems > 0) {
-    out.add(const _EarningsInsight(
-        1, 'توجد طلبات بدون نقرات: تحقق من قراءة عمود النقرات.'));
+    out.add(
+      const _EarningsInsight(
+        1,
+        'توجد طلبات بدون نقرات: تحقق من قراءة عمود النقرات.',
+      ),
+    );
   }
 
   if (r.returnedItems > r.shippedItems) {
     out.add(const _EarningsInsight(1, 'المرتجع أكبر من المشحون.'));
   }
   if (r.totalRevenue > 0 && r.commission > r.totalRevenue) {
-    out.add(const _EarningsInsight(
-        2, 'العمولة أكبر من المبيعات: قراءة خاطئة محتملة.'));
+    out.add(
+      const _EarningsInsight(
+        2,
+        'العمولة أكبر من المبيعات: قراءة خاطئة محتملة.',
+      ),
+    );
   } else if (r.totalRevenue > 0 && r.commission / r.totalRevenue > 0.15) {
-    out.add(_EarningsInsight(1,
-        'نسبة العمولة ${(r.commission / r.totalRevenue * 100).toStringAsFixed(1)}% أعلى من المعتاد.'));
+    out.add(
+      _EarningsInsight(
+        1,
+        'نسبة العمولة ${(r.commission / r.totalRevenue * 100).toStringAsFixed(1)}% أعلى من المعتاد.',
+      ),
+    );
   }
 
   if (e.selected && e.targetCampaignSeq != null) {
-    final dup = all.where((o) =>
-        o != e && o.selected && o.targetCampaignSeq == e.targetCampaignSeq);
+    final dup = all.where(
+      (o) => o != e && o.selected && o.targetCampaignSeq == e.targetCampaignSeq,
+    );
     if (dup.isNotEmpty) {
-      out.add(const _EarningsInsight(2,
-          'نفس الحملة مستهدفة بأكثر من صف: اختر حملة مختلفة أو فعّل الدمج.'));
+      out.add(
+        const _EarningsInsight(
+          2,
+          'نفس الحملة مستهدفة بأكثر من صف: اختر حملة مختلفة أو فعّل الدمج.',
+        ),
+      );
     }
   }
 
@@ -4878,35 +5204,62 @@ List<_EarningsInsight> _earningsInsights(
   if (camp != null) {
     if (r.accountCode.isNotEmpty &&
         camp.accountCode.trim().toUpperCase() != r.accountCode) {
-      out.add(_EarningsInsight(1,
-          'رمز الحساب في الصورة (${r.accountCode}) يختلف عن الحملة (${camp.accountCode}).'));
+      out.add(
+        _EarningsInsight(
+          1,
+          'رمز الحساب في الصورة (${r.accountCode}) يختلف عن الحملة (${camp.accountCode}).',
+        ),
+      );
     }
     if (r.date != null && r.date!.isNotEmpty && r.date != camp.date) {
-      out.add(_EarningsInsight(
-          1, 'تاريخ الصورة (${r.date}) يختلف عن تاريخ الحملة (${camp.date}).'));
+      out.add(
+        _EarningsInsight(
+          1,
+          'تاريخ الصورة (${r.date}) يختلف عن تاريخ الحملة (${camp.date}).',
+        ),
+      );
     }
     if (!camp.isPending && camp.totalEarnings > 0) {
-      out.add(_EarningsInsight(1,
-          'سيستبدل ربحاً مسجلاً سابقاً: \$${camp.totalEarnings.toStringAsFixed(2)} ← \$${r.totalEarnings.toStringAsFixed(2)}.'));
+      out.add(
+        _EarningsInsight(
+          1,
+          'سيستبدل ربحاً مسجلاً سابقاً: \$${camp.totalEarnings.toStringAsFixed(2)} ← \$${r.totalEarnings.toStringAsFixed(2)}.',
+        ),
+      );
     }
     if (r.clicks == 0 && !overwriteClicks && camp.clicks > 0) {
-      out.add(_EarningsInsight(
-          0, 'ستبقى نقرات الحملة المسجلة (${camp.clicks}) كما هي.'));
+      out.add(
+        _EarningsInsight(
+          0,
+          'ستبقى نقرات الحملة المسجلة (${camp.clicks}) كما هي.',
+        ),
+      );
     }
     final net = r.totalEarnings - camp.cost;
     if (camp.cost > 0) {
       final roi = net / camp.cost * 100;
-      out.add(_EarningsInsight(
+      out.add(
+        _EarningsInsight(
           net >= 0 ? 0 : 1,
           'بعد اللصق: صافي \$${net.toStringAsFixed(2)} • ROI ${roi.toStringAsFixed(1)}% '
-          '(التكلفة \$${camp.cost.toStringAsFixed(2)}).'));
+          '(التكلفة \$${camp.cost.toStringAsFixed(2)}).',
+        ),
+      );
     } else {
-      out.add(const _EarningsInsight(
-          1, 'تكلفة الحملة 0: لا يمكن حساب الربح الصافي أو ROI.'));
+      out.add(
+        const _EarningsInsight(
+          1,
+          'تكلفة الحملة 0: لا يمكن حساب الربح الصافي أو ROI.',
+        ),
+      );
     }
   } else if (e.newCatalogProductId != null) {
-    out.add(const _EarningsInsight(
-        1, 'سيُنشأ سجل جديد بتكلفة 0؛ أضف تكلفة الإعلان لاحقاً لحساب ROI.'));
+    out.add(
+      const _EarningsInsight(
+        1,
+        'سيُنشأ سجل جديد بتكلفة 0؛ أضف تكلفة الإعلان لاحقاً لحساب ROI.',
+      ),
+    );
   }
   return out;
 }
@@ -4915,6 +5268,7 @@ bool _earningsHasBlockingIssue(List<_AmazonEarningsTargetEntry> entries) {
   final seen = <int>{};
   for (final e in entries.where((x) => x.selected)) {
     final s = e.targetCampaignSeq;
+    if (s == null && e.newCatalogProductId == null) return true;
     if (s != null && !seen.add(s)) return true;
   }
   return false;
@@ -4977,14 +5331,20 @@ class _EarningsBatchSummary extends StatelessWidget {
     final sel = entries.where((e) => e.selected).toList();
     final earnings = sel.fold<double>(0, (s, e) => s + e.row.totalEarnings);
     final cost = sel.fold<double>(
-        0, (s, e) => s + (_targetCampaignOf(e, campaigns)?.cost ?? 0));
+      0,
+      (s, e) => s + (_targetCampaignOf(e, campaigns)?.cost ?? 0),
+    );
     final updates = sel.where((e) => e.targetCampaignSeq != null).length;
     final creates = sel.length - updates;
     var warns = 0;
     var crits = 0;
     for (final e in sel) {
-      for (final i
-          in _earningsInsights(e, entries, campaigns, overwriteClicks)) {
+      for (final i in _earningsInsights(
+        e,
+        entries,
+        campaigns,
+        overwriteClicks,
+      )) {
         if (i.level == 2) crits++;
         if (i.level == 1) warns++;
       }
@@ -4998,10 +5358,14 @@ class _EarningsBatchSummary extends StatelessWidget {
           spacing: 18,
           runSpacing: 6,
           children: [
-            Text('المحدد: ${sel.length} (تحديث $updates • جديد $creates)',
-                style: const TextStyle(fontWeight: FontWeight.bold)),
-            Text('إجمالي الأرباح: \$${earnings.toStringAsFixed(2)}',
-                style: const TextStyle(color: Color(0xFF38BDF8))),
+            Text(
+              'المحدد: ${sel.length} (تحديث $updates • جديد $creates)',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            Text(
+              'إجمالي الأرباح: \$${earnings.toStringAsFixed(2)}',
+              style: const TextStyle(color: Color(0xFF38BDF8)),
+            ),
             Text('التكلفة: \$${cost.toStringAsFixed(2)}'),
             Text(
               'الصافي: \$${net.toStringAsFixed(2)}'
@@ -5014,11 +5378,15 @@ class _EarningsBatchSummary extends StatelessWidget {
               ),
             ),
             if (warns > 0)
-              Text('⚠ تحذيرات: $warns',
-                  style: const TextStyle(color: Color(0xFFF59E0B))),
+              Text(
+                '⚠ تحذيرات: $warns',
+                style: const TextStyle(color: Color(0xFFF59E0B)),
+              ),
             if (crits > 0)
-              Text('⛔ حرجة: $crits',
-                  style: const TextStyle(color: Color(0xFFF43F5E))),
+              Text(
+                '⛔ حرجة: $crits',
+                style: const TextStyle(color: Color(0xFFF43F5E)),
+              ),
           ],
         ),
       ),
@@ -5049,16 +5417,6 @@ class _AmazonEarningsTargetEntry {
     }
     if (newCatalogProductId != null &&
         catalog.any((p) => p.id == newCatalogProductId)) {
-      return 'new:$newCatalogProductId';
-    }
-    if (availableCampaigns.isNotEmpty) {
-      targetCampaignSeq = availableCampaigns.first.seq;
-      newCatalogProductId = null;
-      return 'camp:$targetCampaignSeq';
-    }
-    if (catalog.isNotEmpty) {
-      targetCampaignSeq = null;
-      newCatalogProductId = catalog.first.id;
       return 'new:$newCatalogProductId';
     }
     return null;
@@ -5145,8 +5503,10 @@ class BeneficiariesAndCatalogScreen extends StatelessWidget {
                         ),
                       ),
                       FilledButton.icon(
-                        icon: const Icon(Icons.person_add_alt_1_rounded,
-                            size: 18),
+                        icon: const Icon(
+                          Icons.person_add_alt_1_rounded,
+                          size: 18,
+                        ),
                         label: const Text('إضافة مستفيد جديد'),
                         onPressed: () => _showBeneficiaryDialog(context),
                       ),
@@ -5224,11 +5584,14 @@ class BeneficiariesAndCatalogScreen extends StatelessWidget {
                                 children: [
                                   IconButton(
                                     tooltip: 'تعديل',
-                                    icon: const Icon(Icons.edit_rounded,
-                                        size: 18),
+                                    icon: const Icon(
+                                      Icons.edit_rounded,
+                                      size: 18,
+                                    ),
                                     onPressed: () => _showBeneficiaryDialog(
-                                        context,
-                                        existing: b),
+                                      context,
+                                      existing: b,
+                                    ),
                                   ),
                                   IconButton(
                                     tooltip: 'حذف المستفيد',
@@ -5319,11 +5682,15 @@ class BeneficiariesAndCatalogScreen extends StatelessWidget {
                             DataCell(
                               InkWell(
                                 onTap: () => copyToClipboard(
-                                    context, p.email, 'الإيميل'),
+                                  context,
+                                  p.email,
+                                  'الإيميل',
+                                ),
                                 child: Text(
                                   p.email,
-                                  style:
-                                      const TextStyle(fontFamily: 'Consolas'),
+                                  style: const TextStyle(
+                                    fontFamily: 'Consolas',
+                                  ),
                                 ),
                               ),
                             ),
@@ -5336,8 +5703,9 @@ class BeneficiariesAndCatalogScreen extends StatelessWidget {
                                 ),
                                 child: Text(
                                   p.password,
-                                  style:
-                                      const TextStyle(fontFamily: 'Consolas'),
+                                  style: const TextStyle(
+                                    fontFamily: 'Consolas',
+                                  ),
                                 ),
                               ),
                             ),
@@ -5394,10 +5762,12 @@ class BeneficiariesAndCatalogScreen extends StatelessWidget {
     BeneficiaryModel? existing,
   }) {
     final nameCtrl = TextEditingController(text: existing?.name ?? '');
-    final capCtrl =
-        TextEditingController(text: '${existing?.baseCapital ?? 100.0}');
-    final codeCtrl =
-        TextEditingController(text: existing?.accountCodeRange ?? 'SH-01');
+    final capCtrl = TextEditingController(
+      text: '${existing?.baseCapital ?? 100.0}',
+    );
+    final codeCtrl = TextEditingController(
+      text: existing?.accountCodeRange ?? 'SH-01',
+    );
 
     showDialog(
       context: context,
@@ -5760,10 +6130,7 @@ class _AmazonAccountsScreenState extends State<AmazonAccountsScreen> {
             ),
             DataCell(buildStatusBadge(a.code)),
             DataCell(
-              Text(
-                a.name,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
+              Text(a.name, style: const TextStyle(fontWeight: FontWeight.w600)),
             ),
             DataCell(
               InkWell(
@@ -6242,8 +6609,10 @@ class GoLoginScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = controller;
-    final totalProfiles =
-        c.gologinAccounts.fold(0, (s, g) => s + g.registeredProfilesCount);
+    final totalProfiles = c.gologinAccounts.fold(
+      0,
+      (s, g) => s + g.registeredProfilesCount,
+    );
     final countriesCount =
         c.gologinAccounts.where((g) => g.country.trim().isNotEmpty).length;
 
@@ -6428,8 +6797,10 @@ class _ProxiesScreenState extends State<ProxiesScreen> {
     final username = cred.substring(0, colon);
     var cc = country.trim();
     if (cc.isEmpty) {
-      final m =
-          RegExp(r'cr\.([a-z]{2})', caseSensitive: false).firstMatch(username);
+      final m = RegExp(
+        r'cr\.([a-z]{2})',
+        caseSensitive: false,
+      ).firstMatch(username);
       if (m != null) {
         final code = m.group(1)!.toLowerCase();
         cc = _countryNames[code] ?? code.toUpperCase();
@@ -6506,12 +6877,15 @@ class _ProxiesScreenState extends State<ProxiesScreen> {
               onPressed: () {
                 final p = _parseProxy(rawCtl.text, countryCtl.text, protocol);
                 if (p == null) {
-                  setDlg(() =>
-                      error = 'الصيغة غير صحيحة، استخدم user:pass@host:port');
+                  setDlg(
+                    () =>
+                        error = 'الصيغة غير صحيحة، استخدم user:pass@host:port',
+                  );
                   return;
                 }
-                if (c.proxies
-                    .any((e) => e.fullProxyString == p.fullProxyString)) {
+                if (c.proxies.any(
+                  (e) => e.fullProxyString == p.fullProxyString,
+                )) {
                   setDlg(() => error = 'هذا البروكسي مسجّل مسبقاً');
                   return;
                 }
@@ -6558,7 +6932,7 @@ class _ProxiesScreenState extends State<ProxiesScreen> {
     final c = widget.controller;
     final countries = [
       'الكل',
-      ...{...c.proxies.map((p) => p.country)}
+      ...{...c.proxies.map((p) => p.country)},
     ];
     final filtered = c.proxies.where((p) {
       if (_countryFilter != 'الكل' && p.country != _countryFilter) return false;
@@ -6886,9 +7260,7 @@ class _BankAccountsScreenState extends State<BankAccountsScreen> {
                             b.amazonAccountName.isEmpty
                                 ? '-'
                                 : b.amazonAccountName,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                         ),
                         DataCell(
@@ -7072,8 +7444,9 @@ class PlatformsAndTimingScreen extends StatelessWidget {
                                 ),
                                 child: Text(
                                   p.password.isEmpty ? '-' : p.password,
-                                  style:
-                                      const TextStyle(fontFamily: 'Consolas'),
+                                  style: const TextStyle(
+                                    fontFamily: 'Consolas',
+                                  ),
                                 ),
                               ),
                             ),
@@ -7118,8 +7491,10 @@ class PlatformsAndTimingScreen extends StatelessWidget {
                 children: [
                   const Row(
                     children: [
-                      Icon(Icons.access_time_filled_rounded,
-                          color: Color(0xFFF59E0B)),
+                      Icon(
+                        Icons.access_time_filled_rounded,
+                        color: Color(0xFFF59E0B),
+                      ),
                       SizedBox(width: 10),
                       Expanded(
                         child: Text(

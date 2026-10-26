@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'executive_spreadsheet.dart';
 
 import 'package:excel_community/excel_community.dart';
 
@@ -87,8 +88,7 @@ class AppSpreadsheetBackup {
       for (final value in values) {
         if (value is! Map) continue;
         sheet.appendRow([
-          for (final header in headers)
-            _cellValue(header, value[header]),
+          for (final header in headers) _cellValue(header, value[header]),
         ]);
       }
     }
@@ -97,7 +97,7 @@ class AppSpreadsheetBackup {
     if (bytes == null || bytes.isEmpty) {
       throw const FormatException('تعذر إنشاء ملف Excel.');
     }
-    return bytes;
+    return ExecutiveSpreadsheet.decorate(bytes, data, schema);
   }
 
   static SpreadsheetMergeResult merge({
@@ -244,7 +244,8 @@ class AppSpreadsheetBackup {
       IntCellValue(value: final number) => number,
       DoubleCellValue(value: final number) => number,
       BoolCellValue(value: final boolean) => boolean,
-      DateCellValue() => value.asDateTimeLocal().toIso8601String().substring(0, 10),
+      DateCellValue() =>
+        value.asDateTimeLocal().toIso8601String().substring(0, 10),
       DateTimeCellValue() =>
         value.asDateTimeLocal().toIso8601String().substring(0, 10),
       FormulaCellValue() => throw const FormatException(
@@ -274,11 +275,8 @@ class AppSpreadsheetBackup {
     }
     if (sample is double || sample is num) {
       if (value is num) return value.toDouble();
-      final text = value
-          .toString()
-          .replaceAll(',', '')
-          .replaceAll('\$', '')
-          .trim();
+      final text =
+          value.toString().replaceAll(',', '').replaceAll('\$', '').trim();
       final parsed = double.tryParse(text);
       if (parsed != null) return parsed;
       throw FormatException(

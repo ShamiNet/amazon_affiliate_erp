@@ -138,7 +138,11 @@ String? normalizeReportDate(String value) {
   return null;
 }
 
-double? _clipboardMetric(String text, List<String> labels) {
+double? _clipboardMetric(
+  String text,
+  List<String> labels, {
+  bool implicitCents = false,
+}) {
   final labelPattern = labels.map(RegExp.escape).join('|');
   final matches = RegExp(
     '(?:^|[^A-Za-z])(?:$labelPattern)'
@@ -147,7 +151,13 @@ double? _clipboardMetric(String text, List<String> labels) {
     caseSensitive: false,
   ).allMatches(text);
   if (matches.isEmpty) return null;
-  return _parseMoney(matches.last.group(1)!);
+  final rawValue = matches.last.group(1)!.trim();
+  final value = _parseMoney(rawValue);
+  // Amazon copies superscript cents without the decimal separator.
+  if (implicitCents && RegExp(r'^[$€£]?\s*[-+]?\d+$').hasMatch(rawValue)) {
+    return value / 100;
+  }
+  return value;
 }
 
 String? _amazonClipboardDate(String text) {
@@ -180,36 +190,78 @@ String? _amazonClipboardDate(String text) {
 /// Parses Amazon Associates' copied summary text without OCR or a model.
 /// Returns null when the copied text does not contain enough labeled metrics.
 ParsedAmazonEarningsRow? parseAmazonAssociatesClipboardReport(String text) {
+  // Clipboard sources include plain text and Markdown with HTML entities.
+  text = text
+      .replaceAllMapped(RegExp(r'&#(x[0-9a-fA-F]+|[0-9]+);'), (m) {
+        final raw = m.group(1)!;
+        final code = raw.startsWith('x')
+            ? int.tryParse(raw.substring(1), radix: 16)
+            : int.tryParse(raw);
+        return code != null && code > 0 && code <= 0x10ffff
+            ? String.fromCharCode(code)
+            : m.group(0)!;
+      })
+      .replaceAll('&nbsp;', ' ')
+      .replaceAll('\u00a0', ' ')
+      .replaceAllMapped(
+          RegExp(r'!?\[([^\]]*)\]\([^\n]*?\)'), (m) => m.group(1)!)
+      .replaceAll(RegExp(r'[*#]'), '')
+      .replaceAll('\\', '');
+  final summaryStart = text.indexOf('Commissions Summary');
+  final summaryEnd = text.indexOf(
+      'Creator Connections Summary', summaryStart < 0 ? 0 : summaryStart);
+  final metricsText = summaryStart >= 0
+      ? text.substring(
+          summaryStart, summaryEnd > summaryStart ? summaryEnd : text.length)
+      : text;
+  final fullText = text;
+  text = metricsText;
   final clicks = _clipboardMetric(text, ['Clicks', 'النقرات']);
-  final orderedItems = _clipboardMetric(
-    text,
-    ['Ordered Items', 'Items Ordered', 'الطلبات المسجلة', 'الطلبات'],
-  );
-  final orderedRevenue = _clipboardMetric(
-    text,
-    ['Ordered Revenue', 'Ordered Sales', 'قيمة الطلبات'],
-  );
-  final shippedItems = _clipboardMetric(
-    text,
-    ['Shipped Items', 'Items Shipped', 'المنتجات المشحونة'],
-  );
-  final returnedItems = _clipboardMetric(
-    text,
-    ['Returned Items', 'Items Returned', 'المنتجات المرتجعة'],
-  );
-  final totalRevenue = _clipboardMetric(
-    text,
-    ['Total Revenue', 'Items Shipped Revenue', 'إجمالي قيمة المبيعات'],
-  );
+  final orderedItems = _clipboardMetric(text, [
+    'Ordered Items',
+    'Ordered',
+    'Items Ordered',
+    'الطلبات المسجلة',
+    'الطلبات',
+  ]);
+  final orderedRevenue = _clipboardMetric(text, [
+    'Ordered Revenue',
+    'Ordered Sales',
+    'قيمة الطلبات',
+  ]);
+  final shippedItems = _clipboardMetric(text, [
+    'Shipped Items',
+    'Shipped',
+    'Items Shipped',
+    'المنتجات المشحونة',
+  ]);
+  final returnedItems = _clipboardMetric(text, [
+    'Returned Items',
+    'Items Returned',
+    'المنتجات المرتجعة',
+  ]);
+  final totalRevenue = _clipboardMetric(text, [
+    'Total Revenue',
+    'Items Shipped Revenue',
+    'إجمالي قيمة المبيعات',
+  ]);
   final commission = _clipboardMetric(
-    text,
-    ['Commissions', 'Commission', 'Items Shipped Earnings', 'العمولات'],
-  );
-  final bonus = _clipboardMetric(text, ['Bounties', 'Bonus', 'المكافآت']);
-  final totalEarnings = _clipboardMetric(
-    text,
-    ['Total Earnings', 'الأرباح الإجمالية'],
-  );
+      text,
+      [
+        'Commissions',
+        'Commission',
+        'Items Shipped Earnings',
+        'العمولات',
+      ],
+      implicitCents: true);
+  final bonus = _clipboardMetric(text, ['Bonus', 'المكافآت']) ??
+      _clipboardMetric(text, ['Bounties']);
+  final totalEarnings = _clipboardMetric(text, [
+    'Total Earnings',
+    if (summaryStart >= 0) 'Earnings',
+    'Total Earnings Summary',
+    'الأرباح الإجمالية',
+  ]);
   final requiredMetricCount = [
     clicks,
     orderedItems,
@@ -220,13 +272,17 @@ ParsedAmazonEarningsRow? parseAmazonAssociatesClipboardReport(String text) {
 
   var commissionValue = commission ?? 0;
   final bonusValue = bonus ?? 0;
-  if (commissionValue == 0 && bonusValue == 0 && (totalEarnings ?? 0) > 0) {
+  if (commission == null && totalEarnings != null) {
+    commissionValue = (totalEarnings - bonusValue).clamp(0.0, double.infinity);
+  } else if (commissionValue == 0 &&
+      bonusValue == 0 &&
+      (totalEarnings ?? 0) > 0) {
     commissionValue = totalEarnings!;
   }
   final trackingId = RegExp(
     r'(?:StoreID|Tracking ID)\s*:\s*([A-Za-z0-9_-]+)',
     caseSensitive: false,
-  ).firstMatch(text)?.group(1);
+  ).firstMatch(fullText)?.group(1);
 
   return ParsedAmazonEarningsRow(
     clicks: (clicks ?? 0).round(),
@@ -237,7 +293,7 @@ ParsedAmazonEarningsRow? parseAmazonAssociatesClipboardReport(String text) {
     totalRevenue: totalRevenue ?? 0,
     commission: commissionValue,
     bonus: bonusValue,
-    date: _amazonClipboardDate(text),
+    date: _amazonClipboardDate(fullText),
     label: trackingId ?? '',
   );
 }
@@ -311,10 +367,12 @@ List<ParsedAmazonEarningsRow> parseAmazonEarningsRows(
 ) {
   if (rows.isEmpty) return const [];
 
-  final clicksIdx = _findColumnFiltered(
-    columns,
-    ['النقرات', 'نقرات', 'clicks', 'click'],
-  );
+  final clicksIdx = _findColumnFiltered(columns, [
+    'النقرات',
+    'نقرات',
+    'clicks',
+    'click',
+  ]);
   final orderedItemsIdx = _findColumnFiltered(
     columns,
     [
@@ -335,17 +393,14 @@ List<ParsedAmazonEarningsRow> parseAmazonEarningsRows(
       'amount',
     ],
   );
-  final orderedRevIdx = _findColumnFiltered(
-    columns,
-    [
-      'قيمة الطلبات المقدرة',
-      'قيمة الطلبات',
-      'إيرادات الطلبات',
-      'عائد الطلبات',
-      'ordered revenue',
-      'ordered sales',
-    ],
-  );
+  final orderedRevIdx = _findColumnFiltered(columns, [
+    'قيمة الطلبات المقدرة',
+    'قيمة الطلبات',
+    'إيرادات الطلبات',
+    'عائد الطلبات',
+    'ordered revenue',
+    'ordered sales',
+  ]);
   final shippedItemsIdx = _findColumnFiltered(
     columns,
     [
@@ -399,39 +454,33 @@ List<ParsedAmazonEarningsRow> parseAmazonEarningsRows(
     ],
     excludeKeywords: ['الطلبات', 'ordered'],
   );
-  final commissionIdx = _findColumnFiltered(
-    columns,
-    [
-      'عمولات أمازون',
-      'عمولة أمازون',
-      'العمولات',
-      'العمولة',
-      'عمولات',
-      'عمولة',
-      'رسوم الإعلانات',
-      'أرباح الإعلانات',
-      'commission',
-      'ad fees',
-      'advertising fees',
-      'standard fees',
-      'referral fees',
-    ],
-  );
-  final bonusIdx = _findColumnFiltered(
-    columns,
-    [
-      'المكافآت الإضافية',
-      'المكافآت',
-      'المكافأة',
-      'مكافآت',
-      'مكافأة',
-      'بونص',
-      'حوافز',
-      'bonus',
-      'bounties',
-      'bounty',
-    ],
-  );
+  final commissionIdx = _findColumnFiltered(columns, [
+    'عمولات أمازون',
+    'عمولة أمازون',
+    'العمولات',
+    'العمولة',
+    'عمولات',
+    'عمولة',
+    'رسوم الإعلانات',
+    'أرباح الإعلانات',
+    'commission',
+    'ad fees',
+    'advertising fees',
+    'standard fees',
+    'referral fees',
+  ]);
+  final bonusIdx = _findColumnFiltered(columns, [
+    'المكافآت الإضافية',
+    'المكافآت',
+    'المكافأة',
+    'مكافآت',
+    'مكافأة',
+    'بونص',
+    'حوافز',
+    'bonus',
+    'bounties',
+    'bounty',
+  ]);
   final totalEarningsIdx = _findColumnFiltered(
     columns,
     [
@@ -453,30 +502,30 @@ List<ParsedAmazonEarningsRow> parseAmazonEarningsRows(
       'bonus',
     ],
   );
-  final dateIdx = _findColumnFiltered(
-    columns,
-    ['التاريخ', 'تاريخ', 'date', 'اليوم', 'day'],
-  );
-  final labelIdx = _findColumnFiltered(
-    columns,
-    [
-      'رمز الحساب',
-      'معرف المتجر',
-      'معرف التتبع',
-      'المنتج',
-      'الصنف',
-      'اسم الحملة',
-      'البروفايل',
-      'الحساب',
-      'store',
-      'tracking',
-      'account',
-      'product',
-      'campaign',
-      'item',
-      'title',
-    ],
-  );
+  final dateIdx = _findColumnFiltered(columns, [
+    'التاريخ',
+    'تاريخ',
+    'date',
+    'اليوم',
+    'day',
+  ]);
+  final labelIdx = _findColumnFiltered(columns, [
+    'رمز الحساب',
+    'معرف المتجر',
+    'معرف التتبع',
+    'المنتج',
+    'الصنف',
+    'اسم الحملة',
+    'البروفايل',
+    'الحساب',
+    'store',
+    'tracking',
+    'account',
+    'product',
+    'campaign',
+    'item',
+    'title',
+  ]);
 
   final hasRecognizedColumns = [
     clicksIdx,
@@ -555,10 +604,7 @@ ParsedAmazonEarningsRow? _tryParseKeyValueEarnings(
   var totalEarnings = 0.0;
   var matchedAny = false;
 
-  final allPairs = <List<String>>[
-    if (columns.length == 2) columns,
-    ...rows,
-  ];
+  final allPairs = <List<String>>[if (columns.length == 2) columns, ...rows];
 
   for (final pair in allPairs) {
     if (pair.length < 2) continue;
@@ -784,9 +830,10 @@ int? matchCatalogIndex(
   var bestScore = 0;
   var tie = false;
   for (final index in candidates) {
-    final score = _tokens(catalog[index].product, code)
-        .intersection(campaignTokens)
-        .length;
+    final score = _tokens(
+      catalog[index].product,
+      code,
+    ).intersection(campaignTokens).length;
     if (score > bestScore) {
       best = index;
       bestScore = score;
@@ -796,4 +843,62 @@ int? matchCatalogIndex(
     }
   }
   return tie ? null : best;
+}
+
+/// Parses a copied PropellerAds page locally. Only a single statistics day is
+/// accepted: campaign start dates, account balance and budgets are not spend.
+List<ParsedCampaignRow> parsePropellerCampaignClipboard(String text) {
+  final normalized = _normalizeDigits(text).replaceAll('\r', '');
+  final header = RegExp(
+    r'^\s*Name\s+Folders\b',
+    multiLine: true,
+  ).firstMatch(normalized);
+  if (header == null) {
+    throw const FormatException(
+      'لم يتم العثور على جدول حملات PropellerAds (Name / Folders).',
+    );
+  }
+  final dates = RegExp(r'\b\d{1,2}/\d{1,2}/\d{4}\b')
+      .allMatches(normalized.substring(0, header.start))
+      .map((m) => normalizeReportDate(m.group(0)!))
+      .whereType<String>()
+      .toList();
+  if (dates.isEmpty || dates.toSet().length != 1) {
+    throw const FormatException(
+      'اختر يوم إحصائيات واحداً في PropellerAds ثم انسخ الصفحة؛ لا يمكن توزيع تكلفة فترة على الأيام بدقة.',
+    );
+  }
+  final day = DateTime.tryParse(dates.first);
+  if (day == null || day.toIso8601String().substring(0, 10) != dates.first) {
+    throw const FormatException('تاريخ الإحصائيات غير صالح.');
+  }
+  final body = normalized.substring(header.end);
+  final starts = RegExp(
+    r'^\s*([A-Za-z]{1,4}-\d{1,3}[^\n]*)',
+    multiLine: true,
+  ).allMatches(body).toList();
+  final result = <ParsedCampaignRow>[];
+  for (var i = 0; i < starts.length; i++) {
+    final block = body.substring(
+      starts[i].end,
+      i + 1 < starts.length ? starts[i + 1].start : body.length,
+    );
+    // Cost is the first currency amount inside this campaign, never CPM/budget.
+    final cost = RegExp(r'\$\s*([0-9][0-9,]*(?:\.[0-9]+)?)').firstMatch(block);
+    if (cost == null) {
+      throw FormatException('تعذر قراءة تكلفة الحملة ${starts[i].group(1)}.');
+    }
+    result.add(
+      ParsedCampaignRow(
+        date: dates.first,
+        campaignName: starts[i].group(1)!.trim(),
+        cost: _parseMoney(cost.group(1)!),
+        clicks: 0,
+      ),
+    );
+  }
+  if (result.isEmpty) {
+    throw const FormatException('لم يتم العثور على حملات برمز حساب مثل SH-04.');
+  }
+  return result;
 }

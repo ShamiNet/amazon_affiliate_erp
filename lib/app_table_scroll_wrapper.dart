@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/rendering.dart';
 
 class AppTableScrollWrapper extends StatefulWidget {
   final Widget child;
@@ -10,6 +11,7 @@ class AppTableScrollWrapper extends StatefulWidget {
   final double maxScale;
   final String? tableTitle;
   final List<Widget>? extraActions;
+  final bool pinHeader;
 
   const AppTableScrollWrapper({
     super.key,
@@ -19,6 +21,7 @@ class AppTableScrollWrapper extends StatefulWidget {
     this.maxScale = 1.50,
     this.tableTitle,
     this.extraActions,
+    this.pinHeader = false,
   });
 
   @override
@@ -238,7 +241,20 @@ class _AppTableScrollWrapperState extends State<AppTableScrollWrapper> {
                                     (16 * _scale).clamp(8.0, 40.0),
                               ),
                             ),
-                            child: widget.child,
+                            child: widget.pinHeader
+                                ? _PinnedTableHeader(
+                                    controller: _verticalController,
+                                    height: widget.child is DataTable
+                                        ? ((widget.child as DataTable)
+                                                .headingRowHeight ??
+                                            46 * _scale)
+                                        : 46 * _scale,
+                                    color: isDark
+                                        ? const Color(0xFF0F172A)
+                                        : const Color(0xFFF8FAFC),
+                                    child: widget.child,
+                                  )
+                                : widget.child,
                           ),
                         ),
                       ),
@@ -255,4 +271,88 @@ class _AppTableScrollWrapperState extends State<AppTableScrollWrapper> {
 
   // Expanded فقط عند وجود ارتفاع محدود، وإلا يُترك الجدول بحجمه الطبيعي
   Widget _flex(bool bounded, Widget w) => bounded ? Expanded(child: w) : w;
+}
+
+/// Repaints the original heading at the viewport edge, preserving column widths
+/// and routing pointer events back to its original sort/filter controls.
+class _PinnedTableHeader extends SingleChildRenderObjectWidget {
+  const _PinnedTableHeader(
+      {required this.controller,
+      required this.height,
+      required this.color,
+      required super.child});
+  final ScrollController controller;
+  final double height;
+  final Color color;
+
+  @override
+  _PinnedTableRender createRenderObject(BuildContext context) =>
+      _PinnedTableRender(controller, height, color);
+
+  @override
+  void updateRenderObject(
+      BuildContext context, _PinnedTableRender renderObject) {
+    renderObject.update(controller, height, color);
+  }
+}
+
+class _PinnedTableRender extends RenderProxyBox {
+  _PinnedTableRender(this.controller, this.headingHeight, this.color);
+  ScrollController controller;
+  double headingHeight;
+  Color color;
+  double get scrollOffset => controller.hasClients
+      ? controller.offset.clamp(0.0,
+          size.height - headingHeight < 0 ? 0.0 : size.height - headingHeight)
+      : 0;
+
+  void update(ScrollController next, double height, Color background) {
+    if (controller != next) {
+      if (attached) controller.removeListener(markNeedsPaint);
+      controller = next;
+      if (attached) controller.addListener(markNeedsPaint);
+    }
+    headingHeight = height;
+    color = background;
+    markNeedsPaint();
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    controller.addListener(markNeedsPaint);
+  }
+
+  @override
+  void detach() {
+    controller.removeListener(markNeedsPaint);
+    super.detach();
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    super.paint(context, offset);
+    final dy = scrollOffset;
+    if (dy <= 0 || child == null) return;
+    final pinnedOffset = offset + Offset(0, dy);
+    context.pushClipRect(needsCompositing, pinnedOffset,
+        Rect.fromLTWH(0, 0, size.width, headingHeight), (ctx, origin) {
+      ctx.canvas.drawRect(
+          Rect.fromLTWH(origin.dx, origin.dy, size.width, headingHeight),
+          Paint()..color = color);
+      ctx.paintChild(child!, origin);
+    });
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
+    final dy = scrollOffset;
+    if (dy > 0 && position.dy >= dy && position.dy < dy + headingHeight) {
+      return result.addWithPaintOffset(
+          offset: Offset(0, dy),
+          position: position,
+          hitTest: (result, local) => child!.hitTest(result, position: local));
+    }
+    return super.hitTestChildren(result, position: position);
+  }
 }

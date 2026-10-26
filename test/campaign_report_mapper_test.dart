@@ -44,6 +44,25 @@ void main() {
         throwsFormatException);
   });
 
+  test('reads copied commissions with implicit cents', () {
+    for (final entry in {
+      r'$3323': 33.23,
+      r'$33.23': 33.23,
+      r'$000': 0.0,
+      r'$5': 0.05,
+      r'$1,234.56': 1234.56,
+    }.entries) {
+      final row = parseAmazonAssociatesClipboardReport(
+        'Commissions\n${entry.key}\nClicks\n22\nOrdered Items\n44\n'
+        'Ordered Revenue\n858.08\nTotal Revenue\n1003.62\n',
+      );
+      expect(row!.commission, entry.value, reason: entry.key);
+      expect(row.clicks, 22);
+      expect(row.orderedItems, 44);
+      expect(row.orderedRevenue, 858.08);
+    }
+  });
+
   test('extracts Amazon summary metrics from copied page text', () {
     const copiedReport = '''
 Hello, Lara Floriane

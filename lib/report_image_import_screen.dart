@@ -28,16 +28,14 @@ class ReportComparison {
         _currentColumnIndexes = _indexColumns(currentColumns) {
     missingColumns = currentColumns
         .where(
-          (column) => !_importedColumnIndexes.containsKey(
-            column.trim().toLowerCase(),
-          ),
+          (column) =>
+              !_importedColumnIndexes.containsKey(column.trim().toLowerCase()),
         )
         .toSet();
     extraColumns = importedReport.columns
         .where(
-          (column) => !_currentColumnIndexes.containsKey(
-            column.trim().toLowerCase(),
-          ),
+          (column) =>
+              !_currentColumnIndexes.containsKey(column.trim().toLowerCase()),
         )
         .toSet();
 
@@ -202,9 +200,7 @@ class ReportImageImportService {
 
     final request =
         await _httpClient.getUrl(uri).timeout(const Duration(seconds: 5));
-    final response = await request.close().timeout(
-          const Duration(seconds: 5),
-        );
+    final response = await request.close().timeout(const Duration(seconds: 5));
     final responseBody = await utf8.decoder
         .bind(response)
         .join()
@@ -383,7 +379,8 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
               ),
               const SizedBox(height: 12),
               const SelectableText(
-                  'إنشاء المفتاح: https://aistudio.google.com/apikey'),
+                'إنشاء المفتاح: https://aistudio.google.com/apikey',
+              ),
               const SizedBox(height: 12),
               TextField(
                 controller: nameController,
@@ -412,10 +409,10 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
             child: const Text('إلغاء'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(
-              dialogContext,
-              (nameController.text.trim(), controller.text.trim()),
-            ),
+            onPressed: () => Navigator.pop(dialogContext, (
+              nameController.text.trim(),
+              controller.text.trim(),
+            )),
             child: const Text('حفظ الملف'),
           ),
         ],
@@ -564,10 +561,7 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
     try {
       final clipboardImage = await Pasteboard.image;
       if (clipboardImage == null || clipboardImage.isEmpty) {
-        setState(() {
-          _error =
-              'لا توجد صورة في الحافظة. اضغط Print Screen أولاً ثم حاول اللصق.';
-        });
+        await _pasteReportFromClipboard();
         return;
       }
       if (clipboardImage.length > 50 * 1024 * 1024) {
@@ -591,7 +585,8 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
     } on PlatformException catch (error) {
       if (mounted) {
         setState(
-            () => _error = error.message ?? 'تعذر قراءة الصورة من الحافظة.');
+          () => _error = error.message ?? 'تعذر قراءة الصورة من الحافظة.',
+        );
       }
     } catch (error) {
       if (mounted) setState(() => _error = 'تعذر لصق صورة الحافظة: $error');
@@ -714,9 +709,9 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
       }
     } on HttpException catch (error) {
       if (mounted) {
-        final isClosedConnection = error.message
-            .toLowerCase()
-            .contains('connection closed before full header');
+        final isClosedConnection = error.message.toLowerCase().contains(
+              'connection closed before full header',
+            );
         setState(() {
           _error = isClosedConnection
               ? 'أغلقت خدمة OCR الاتصال قبل إرسال الرد. '
@@ -777,9 +772,7 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تم نسخ الصفوف بدون عناوين إلى الحافظة.'),
-        ),
+        const SnackBar(content: Text('تم نسخ الصفوف بدون عناوين إلى الحافظة.')),
       );
     }
   }
@@ -796,7 +789,20 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
           ? parseAmazonAssociatesClipboardReport(text)
           : null;
       late ExtractedReport report;
-      if (copiedAmazonReport != null) {
+      if (_reportType == ReportImageType.adCampaigns &&
+          RegExp(r'Name\s+Folders').hasMatch(text)) {
+        final campaigns = parsePropellerCampaignClipboard(text);
+        report = ExtractedReport(
+          title: 'PropellerAds — إحصائيات يومية',
+          columns: const ['تاريخ الإحصائيات', 'اسم الحملة', 'التكلفة'],
+          rows: campaigns
+              .map((r) => [r.date, r.campaignName, r.cost.toStringAsFixed(3)])
+              .toList(),
+          warnings: const [
+            'التكلفة من Cost؛ الرصيد وCPM والميزانية ليست مصروفات. لا يتضمن النص عنوان نقرات موثوقاً؛ لن تتغير نقرات أمازون.',
+          ],
+        );
+      } else if (copiedAmazonReport != null) {
         final columns = [
           'Date',
           'StoreID',
@@ -924,11 +930,9 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
     _lastExportPath = exportFile.path;
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('تم حفظ الملف: ${exportFile.path}'),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('تم حفظ الملف: ${exportFile.path}')));
   }
 
   Future<void> _openExportFolder() async {
@@ -971,8 +975,10 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text(
-                  'تم فتح الملف الخارجي. يمكن مقارنة محتواه يدويًا مع البيانات الحالية.')),
+            content: Text(
+              'تم فتح الملف الخارجي. يمكن مقارنة محتواه يدويًا مع البيانات الحالية.',
+            ),
+          ),
         );
         return;
       }
@@ -1249,9 +1255,11 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
                                   if (value == null) return;
                                   setState(() => _extractionMode = value);
                                   if (value == ReportExtractionMode.local) {
-                                    unawaited(_refreshBackendStatus(
-                                      tryStartBackend: true,
-                                    ));
+                                    unawaited(
+                                      _refreshBackendStatus(
+                                        tryStartBackend: true,
+                                      ),
+                                    );
                                   }
                                 },
                         ),
@@ -1274,7 +1282,12 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
                               ? null
                               : (value) {
                                   if (value != null) {
-                                    setState(() => _reportType = value);
+                                    setState(() {
+                                      _reportType = value;
+                                      _report = null;
+                                      _editedRows = [];
+                                      _error = null;
+                                    });
                                   }
                                 },
                         ),
@@ -1524,7 +1537,9 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
                                   DataCell(
                                     Container(
                                       color: comparison?.cellDiffers(
-                                                  rowIndex, columnIndex) ??
+                                                rowIndex,
+                                                columnIndex,
+                                              ) ??
                                               false
                                           ? colors.errorContainer.withValues(
                                               alpha: 0.55,
@@ -1535,7 +1550,7 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
                                         width: 150,
                                         child: TextFormField(
                                           key: ValueKey(
-                                            'report-$rowIndex-$columnIndex',
+                                            'report-${identityHashCode(_report)}-$rowIndex-$columnIndex',
                                           ),
                                           initialValue: _editedRows[rowIndex]
                                               [columnIndex],

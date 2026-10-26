@@ -258,6 +258,19 @@ void main() {
           .map((field) => field.initialValue),
       ['2026-10-18', '12'],
     );
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.getData') {
+        return {'text': 'Date\tClicks\r\n2026-10-26\t45'};
+      }
+      return null;
+    });
+    await tester.tap(find.text('لصق جدول من الحافظة'));
+    await tester.pumpAndSettle();
+    final displayed = tester.widgetList<EditableText>(find.byType(EditableText))
+        .map((field) => field.controller.text).toList();
+    expect(displayed, containsAll(['2026-10-26', '45']));
+    expect(displayed, isNot(contains('2026-10-18')));
+    expect(displayed, isNot(contains('12')));
   });
 
   testWidgets('pastes Amazon Associates copied page text without OCR',
