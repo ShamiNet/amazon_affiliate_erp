@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "drone-academy-13a5f"
+  },
+  "targets": {
+    "drone-academy-13a5f": {
+      "hosting": {
+        "erp-portal": [
+          "sh-amz"
+        ]
+      }
+    }
+  }
+}

@@ -49,3 +49,12 @@ app.*.map.json
 
 # Installer output
 installer_output/
+
+# Firebase portal build and local emulator state
+/firebase_portal/functions/node_modules/
+/firebase_portal/functions/.env*
+/firebase_portal/.runtime/
+/.firebase/
+/firebase-debug.log
+/firestore-debug.log
+/ui-debug.log

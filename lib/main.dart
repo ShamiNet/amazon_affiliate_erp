@@ -19,6 +19,7 @@ import 'dart:math' as math;
 import 'dart:ui' show AppExitResponse;
 
 import 'package:file_picker/file_picker.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -30,6 +31,8 @@ import 'ai_section_advisor_dialog.dart';
 import 'gemini_advisor_service.dart';
 import 'erp_chat_dialog.dart';
 import 'erp_chat_context.dart';
+import 'portal_admin_sync.dart';
+import 'portal_screens.dart';
 import 'report_backend_launcher.dart';
 import 'report_image_import_screen.dart';
 import 'app_table_scroll_wrapper.dart';
@@ -128,6 +131,7 @@ class ProductCatalogModel {
 }
 
 class CampaignLogModel {
+  String cloudId;
   int seq;
   String date;
   String beneficiary;
@@ -149,6 +153,7 @@ class CampaignLogModel {
   String adUrl;
 
   CampaignLogModel({
+    String? cloudId,
     required this.seq,
     required this.date,
     required this.beneficiary,
@@ -168,7 +173,11 @@ class CampaignLogModel {
     required this.bonus,
     required this.isPending,
     required this.adUrl,
-  });
+  }) : cloudId = cloudId ??
+            sha256
+                .convert(
+                    utf8.encode(jsonEncode([seq, date, accountCode, product])))
+                .toString();
 
   // المعادلات المحاسبية الديناميكية المطابقة لملف الإكسل
   double get conversionRate => clicks > 0 ? orderedItems / clicks : 0.0;
@@ -205,6 +214,7 @@ class CampaignLogModel {
   }
 
   factory CampaignLogModel.fromJson(Map<String, dynamic> j) => CampaignLogModel(
+        cloudId: j['_portalRecordId'] as String?,
         seq: (j['seq'] ?? 0) as int,
         date: (j['date'] ?? '').toString(),
         beneficiary: (j['beneficiary'] ?? '').toString(),
@@ -227,6 +237,7 @@ class CampaignLogModel {
       );
 
   Map<String, dynamic> toJson() => {
+        '_portalRecordId': cloudId,
         'seq': seq,
         'date': date,
         'beneficiary': beneficiary,
@@ -483,6 +494,7 @@ class GoLoginAccountModel {
 }
 
 class ProxyModel {
+  String cloudId;
   String country;
   bool isUsed;
   String portType;
@@ -493,6 +505,7 @@ class ProxyModel {
   int port;
 
   ProxyModel({
+    String? cloudId,
     required this.country,
     required this.isUsed,
     required this.portType,
@@ -501,11 +514,15 @@ class ProxyModel {
     required this.password,
     required this.host,
     required this.port,
-  });
+  }) : cloudId = cloudId ??
+            sha256
+                .convert(utf8.encode(jsonEncode([host, port, username])))
+                .toString();
 
   String get fullProxyString => '$username:$password@$host:$port';
 
   factory ProxyModel.fromJson(Map<String, dynamic> j) => ProxyModel(
+        cloudId: j['_portalRecordId'] as String?,
         country: (j['country'] ?? '').toString(),
         isUsed: (j['isUsed'] ?? false) as bool,
         portType: (j['portType'] ?? 'ثابت').toString(),
@@ -517,6 +534,7 @@ class ProxyModel {
       );
 
   Map<String, dynamic> toJson() => {
+        '_portalRecordId': cloudId,
         'country': country,
         'isUsed': isUsed,
         'portType': portType,
@@ -529,6 +547,7 @@ class ProxyModel {
 }
 
 class BankAccountModel {
+  String cloudId;
   String iban;
   String beneficiaryName;
   String bic;
@@ -541,6 +560,7 @@ class BankAccountModel {
   String amazonAccountName;
 
   BankAccountModel({
+    String? cloudId,
     required this.iban,
     required this.beneficiaryName,
     required this.bic,
@@ -551,11 +571,16 @@ class BankAccountModel {
     required this.verificationDoc,
     required this.amazonEmail,
     required this.amazonAccountName,
-  });
+  }) : cloudId = cloudId ??
+            sha256
+                .convert(
+                    utf8.encode(jsonEncode([iban, bankName, beneficiaryName])))
+                .toString();
 
   bool get isLinked => status.contains('تم الربط');
 
   factory BankAccountModel.fromJson(Map<String, dynamic> j) => BankAccountModel(
+        cloudId: j['_portalRecordId'] as String?,
         iban: (j['iban'] ?? '').toString(),
         beneficiaryName: (j['beneficiaryName'] ?? '').toString(),
         bic: (j['bic'] ?? '').toString(),
@@ -569,6 +594,7 @@ class BankAccountModel {
       );
 
   Map<String, dynamic> toJson() => {
+        '_portalRecordId': cloudId,
         'iban': iban,
         'beneficiaryName': beneficiaryName,
         'bic': bic,
@@ -951,11 +977,14 @@ class AppDataController extends ChangeNotifier {
   bool isDarkMode = true;
   String lastSavedPath = '';
 
-  AppDataController({bool initialize = true}) {
-    if (initialize) _initData();
+  late final Future<void> ready;
+  final File? databaseFile;
+  AppDataController({bool initialize = true, this.databaseFile}) {
+    ready = initialize ? _initData() : Future<void>.value();
   }
 
   File get _localDbFile {
+    if (databaseFile != null) return databaseFile!;
     final home = Platform.environment['USERPROFILE'] ??
         Platform.environment['HOME'] ??
         Directory.current.path;
@@ -963,20 +992,25 @@ class AppDataController extends ChangeNotifier {
   }
 
   Future<void> _initData() async {
-    try {
-      final file = _localDbFile;
-      if (await file.exists()) {
-        final content = await file.readAsString();
-        _loadFromJsonMap(jsonDecode(content) as Map<String, dynamic>);
-        lastSavedPath = file.path;
-        notifyListeners();
-        return;
+    final file = _localDbFile;
+    if (await file.exists()) {
+      final content = await file.readAsString();
+      _loadFromJsonMap(jsonDecode(content) as Map<String, dynamic>);
+      if (_portalIdsChanged) {
+        final backup = File('${file.path}.before_portal_ids.bak');
+        if (!await backup.exists()) await file.copy(backup.path);
+        await saveToDisk();
       }
-    } catch (_) {}
+      lastSavedPath = file.path;
+      notifyListeners();
+      return;
+    }
     await resetToFactoryData();
   }
 
+  bool _portalIdsChanged = false;
   void _loadFromJsonMap(Map<String, dynamic> map) {
+    _portalIdsChanged = false;
     beneficiaries = ((map['beneficiaries'] ?? []) as List)
         .map((e) => BeneficiaryModel.fromJson(e as Map<String, dynamic>))
         .toList();
@@ -1013,6 +1047,27 @@ class AppDataController extends ChangeNotifier {
     workflowSteps = ((map['workflow_steps'] ?? []) as List)
         .map((e) => WorkflowStepModel.fromJson(e as Map<String, dynamic>))
         .toList();
+    for (final entry in <String, List<dynamic>>{
+      'campaigns': campaigns,
+      'proxies': proxies,
+      'bank_accounts': bankAccounts
+    }.entries) {
+      final oldRows = map[entry.key] as List? ?? [];
+      final used = <String>{};
+      for (var i = 0; i < entry.value.length; i++) {
+        final row = entry.value[i];
+        if (i >= oldRows.length || oldRows[i]['_portalRecordId'] == null)
+          _portalIdsChanged = true;
+        if (!used.add(row.cloudId as String)) {
+          final random = math.Random.secure();
+          row.cloudId = List.generate(32,
+                  (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'))
+              .join();
+          used.add(row.cloudId as String);
+          _portalIdsChanged = true;
+        }
+      }
+    }
   }
 
   Map<String, dynamic> toFullJsonMap() => {
@@ -1101,6 +1156,9 @@ class AppDataController extends ChangeNotifier {
 
   double get overallRoi =>
       totalCampaignSpend > 0 ? (totalNetProfit / totalCampaignSpend) : 0.0;
+
+  int get nextCampaignSequence =>
+      campaigns.fold<int>(0, (max, c) => c.seq > max ? c.seq : max) + 1;
 
   int get totalClicks => campaigns.fold(0, (s, c) => s + c.clicks);
   int get totalOrderedItems => campaigns.fold(0, (s, c) => s + c.orderedItems);
@@ -1285,9 +1343,23 @@ class WindowsDesktopShell extends StatefulWidget {
 
 class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
   final _chatSession = ErpChatSession();
+  late final PortalAdminSync _cloudSync;
+  @override
+  void initState() {
+    super.initState();
+    _cloudSync = PortalAdminSync(
+        snapshot: widget.controller.toFullJsonMap,
+        applySnapshot: widget.controller.importMergedSpreadsheetData,
+        changes: widget.controller);
+    unawaited(widget.controller.ready.then((_) async {
+      if (mounted) await _cloudSync.restore();
+    }).catchError((Object _) {}));
+  }
+
   @override
   void dispose() {
     _chatSession.dispose();
+    _cloudSync.dispose();
     super.dispose();
   }
 
@@ -1875,6 +1947,24 @@ class _WindowsDesktopShellState extends State<WindowsDesktopShell> {
                           widget.controller.toFullJsonMap(), scope),
                     )),
           ),
+          OutlinedButton.icon(
+              icon: const Icon(Icons.manage_accounts_outlined),
+              label: const Text('المستخدمون والمزامنة'),
+              onPressed: () async {
+                try {
+                  await widget.controller.ready;
+                } catch (_) {
+                  if (mounted)
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text(
+                            'تعذر تحميل البيانات المحلية بأمان. راجع ملف البيانات قبل المزامنة.')));
+                  return;
+                }
+                if (!mounted) return;
+                showDialog<void>(
+                    context: context,
+                    builder: (_) => PortalAdminDialog(sync: _cloudSync));
+              }),
           AiSectionAdvisorButton(
             section: _getCurrentErpSection(_selectedIndex),
             sectionTitle: currentNav.title,
@@ -4125,7 +4215,8 @@ class _CampaignsInventoryScreenState extends State<CampaignsInventoryScreen> {
                 label: const Text('حفظ الحملة وحساب العائد'),
                 onPressed: () {
                   final model = CampaignLogModel(
-                    seq: existing?.seq ?? (c.campaigns.length + 1),
+                    cloudId: existing?.cloudId,
+                    seq: existing?.seq ?? (c.nextCampaignSequence),
                     date: dateCtrl.text.trim(),
                     beneficiary: benefCtrl.text.trim(),
                     accountCode: codeCtrl.text.trim(),
@@ -4467,7 +4558,7 @@ Future<void> showCampaignImportDialog(
     c.campaigns.insert(
       0,
       CampaignLogModel(
-        seq: c.campaigns.length + 1,
+        seq: c.nextCampaignSequence,
         date: statsDate,
         beneficiary: p?.beneficiary ?? '',
         accountCode: e.accountCode,
@@ -5050,7 +5141,7 @@ Future<void> showAmazonEarningsImportDialog(
       c.campaigns.insert(
         0,
         CampaignLogModel(
-          seq: c.campaigns.length + 1,
+          seq: c.nextCampaignSequence,
           date: r.date ?? effectiveNewDate,
           beneficiary: prod?.beneficiary ?? '',
           accountCode: prod?.accountCode ?? r.accountCode,
