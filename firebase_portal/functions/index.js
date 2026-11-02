@@ -5,6 +5,7 @@ const {getFirestore,FieldValue} = require('firebase-admin/firestore');
 const {onRequest} = require('firebase-functions/v2/https');
 const {createHash,randomUUID} = require('node:crypto');
 const P=require('./policy');
+const Records=require('./admin_records');
 initializeApp();
 const db=getFirestore(process.env.ERP_DATABASE_ID||'erp-portal');
 const root=db.doc('workspaces/main'),members=db.collection('members');
@@ -25,7 +26,7 @@ async function state(){
  if(createHash('sha256').update(bytes).digest('hex')!==meta.hash)throw fail('SNAPSHOT_INTEGRITY',503);
  return {data:JSON.parse(bytes.toString('utf8')),meta};
 }
-async function commit(data,expectedRevision,actor,policyRevision){
+async function commit(data,expectedRevision,actor,policyRevision,assignments){
  const safe=P.validateData(data),bytes=Buffer.from(JSON.stringify(safe),'utf8');
  if(bytes.length>8000000)throw fail('DATA_TOO_LARGE',413);
  const generation=randomUUID();
@@ -42,7 +43,7 @@ async function commit(data,expectedRevision,actor,policyRevision){
    const profile=(await tx.get(members.doc(actor))).data();
    if(!profile?.enabled||profile.policyRevision!==policyRevision)throw fail('ACCESS_DENIED',403);
    if(old.revision!==expectedRevision)throw fail('REVISION_CONFLICT',409);
-   tx.set(root,{...old,generation,hash:createHash('sha256').update(bytes).digest('hex'),revision:old.revision+1,updatedAt:FieldValue.serverTimestamp(),updatedBy:actor});
+   tx.set(root,{...old,...(assignments?{assignments}:{}),generation,hash:createHash('sha256').update(bytes).digest('hex'),revision:old.revision+1,updatedAt:FieldValue.serverTimestamp(),updatedBy:actor});
   });
  }catch(e){await db.recursiveDelete(parent);throw e;}
  return expectedRevision+1;
@@ -108,13 +109,25 @@ exports.erpPortalApi=onRequest({region:'us-central1',timeoutSeconds:1800,memory:
    return res.json({revision:await commit(edited,s.meta.revision,a.uid,a.policyRevision)});
   }
   admin(a);
+  if(req.method==='POST'&&path==='/admin/records'){
+   if(!Number.isSafeInteger(body.expectedRevision)||body.expectedRevision<0)throw fail('INVALID_REVISION');
+   const s=await state();if(body.expectedRevision!==(s.meta.revision||0))throw fail('REVISION_CONFLICT',409);
+   if(body.table==='beneficiaries'&&body.action==='delete'){
+    const row=P.rows(s.data,'beneficiaries').find(r=>P.rowId('beneficiaries',r)===body.rowId);
+    if(row&&Object.values(s.meta.assignments||{}).includes(String(row.id)))throw fail('RECORD_IN_USE',409);
+    if(row&&(await members.where('beneficiaryId','==',String(row.id)).limit(1).get()).size)throw fail('RECORD_IN_USE',409);
+   }
+   let edited;try{edited=Records.mutate(s.data,body);}catch(e){if(e.message.startsWith('DUPLICATE'))throw fail('DUPLICATE_RECORD',409);throw e;}
+   const assignments={...(s.meta.assignments||{})};if(body.action==='delete')delete assignments[body.table+':'+body.rowId];
+   return res.json({revision:await commit(edited,s.meta.revision||0,a.uid,a.policyRevision,assignments)});
+  }
   if(req.method==='GET'&&path==='/admin/state'){const s=await state();return res.json({data:s.data,revision:s.meta.revision||0,assignments:s.meta.assignments||{}});}
   if(req.method==='POST'&&path==='/admin/publish'){
    if(!Number.isSafeInteger(body.expectedRevision)||body.expectedRevision<0)throw fail('INVALID_REVISION');
    return res.json({revision:await commit(body.data,body.expectedRevision,a.uid,a.policyRevision)});
   }
   if(req.method==='GET'&&path==='/admin/catalog'){
-   const s=await state();return res.json({tables:P.tables,metrics:P.metrics,defaultPermissions:P.defaultPermissions(),beneficiaries:P.rows(s.data,'beneficiaries'),assignments:s.meta.assignments||{},records:Object.fromEntries(Object.entries(s.data).map(([t,rows])=>[t,rows.map(r=>({rowId:P.rowId(t,r),values:r}))]))});
+   const s=await state();return res.json({revision:s.meta.revision||0,recordSchema:Records.schema(),tables:P.tables,metrics:P.metrics,defaultPermissions:P.defaultPermissions(),beneficiaries:P.rows(s.data,'beneficiaries'),assignments:s.meta.assignments||{},records:Object.fromEntries(Object.entries(s.data).map(([t,rows])=>[t,rows.map(r=>({rowId:P.rowId(t,r),values:r}))]))});
   }
   if(req.method==='GET'&&path==='/admin/users')return res.json({users:(await members.get()).docs.map(d=>({uid:d.id,...d.data()}))});
   if(req.method==='POST'&&/^\/admin\/users\/[^/]+\/password$/.test(path)){
@@ -156,7 +169,7 @@ exports.erpPortalApi=onRequest({region:'us-central1',timeoutSeconds:1800,memory:
  }catch(e){
   const denied=['ACCESS_DENIED','FIELD_DENIED','ADMIN_REQUIRED','BENEFICIARY_REQUIRED'].includes(e.message);
   const status=e.status||(denied?403:400);
-  const known=['SIGN_IN_REQUIRED','ACCESS_DENIED','ADMIN_REQUIRED','BENEFICIARY_REQUIRED','BENEFICIARY_NOT_FOUND','FIELD_DENIED','REVISION_CONFLICT','INVALID_VALUE','INVALID_REVISION','INVALID_PASSWORD','INVALID_BENEFICIARY','RECORD_NOT_FOUND','MEMBER_EXISTS','MEMBER_NOT_FOUND','NOT_FOUND','DATA_TOO_LARGE','SNAPSHOT_INTEGRITY'];
+  const known=['SIGN_IN_REQUIRED','ACCESS_DENIED','ADMIN_REQUIRED','BENEFICIARY_REQUIRED','BENEFICIARY_NOT_FOUND','FIELD_DENIED','REVISION_CONFLICT','INVALID_VALUE','INVALID_REVISION','INVALID_PASSWORD','INVALID_BENEFICIARY','RECORD_NOT_FOUND','MEMBER_EXISTS','MEMBER_NOT_FOUND','NOT_FOUND','IDENTITY_LOCKED','RECORD_IN_USE','DUPLICATE_RECORD','DATA_TOO_LARGE','SNAPSHOT_INTEGRITY'];
   const code=known.includes(e.message)?e.message:e.code==='auth/email-already-exists'?'EMAIL_ALREADY_EXISTS':'REQUEST_FAILED';
   if(res.headersSent){res.end();return;}
   res.status(status).json({error:code});

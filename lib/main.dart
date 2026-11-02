@@ -4682,11 +4682,21 @@ Future<void> showAmazonEarningsImportDialog(
         .where((a) =>
             a.storeId.trim().toLowerCase() == row.label.trim().toLowerCase())
         .toList();
-    final code = accounts.length == 1
+    var code = accounts.length == 1
         ? accounts.single.code.trim().toUpperCase()
         : row.accountCode;
     final profile =
-        accounts.length == 1 ? accounts.single.name.trim().toLowerCase() : '';
+        accounts.length == 1 && accounts.single.name.trim().isNotEmpty
+            ? accounts.single.name.trim().toLowerCase()
+            : row.profileName.trim().toLowerCase();
+    if (code.isEmpty && profile.isNotEmpty) {
+      final profileCodes = c.productsCatalog
+          .where((p) => p.profile.trim().toLowerCase() == profile)
+          .map((p) => p.accountCode.trim().toUpperCase())
+          .where((value) => value.isNotEmpty)
+          .toSet();
+      if (profileCodes.length == 1) code = profileCodes.single;
+    }
     final labelLower = row.label.toLowerCase().trim();
     if (code.isNotEmpty || profile.isNotEmpty) {
       final matches = candidates

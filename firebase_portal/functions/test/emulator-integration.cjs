@@ -42,6 +42,23 @@ async function main(){
  assert.equal((await api(oldLogin,'/view')).status,401);
  await assert.rejects(()=>login(created.data.email,'Initial-test-password-123!'));
  const newLogin=await login(created.data.email,'New-test-password-123!');assert.equal((await api(newLogin,'/view')).status,200);
+
+ // Admin CRUD is revision checked and immediately projected to beneficiaries.
+ const live=await fetch(base+'/events',{headers:{Authorization:'Bearer '+newLogin}}),liveReader=live.body.getReader();await nextEvent(liveReader,'view');
+ let crudState=(await api(admin,'/admin/state')).data;
+ const payload={table:'campaigns',action:'create',expectedRevision:crudState.revision,values:{beneficiary:'أبو مخلص',accountCode:'MK-01',product:'Web CRUD demo',date:'2026-11-02',cost:7,commission:20,bonus:3}};
+ assert.equal((await api(a,'/admin/records','POST',payload)).status,403);
+ const add=await api(admin,'/admin/records','POST',payload);assert.equal(add.status,200);
+ let liveView=await nextEvent(liveReader,'view',v=>v.sections.campaigns.rows.some(r=>r.values.product==='Web CRUD demo'));
+ const added=liveView.sections.campaigns.rows.find(r=>r.values.product==='Web CRUD demo');
+ assert.equal(added.values.commission,20);
+ assert.equal((await api(admin,'/admin/records','POST',payload)).status,409);
+ const change=await api(admin,'/admin/records','POST',{table:'campaigns',action:'update',rowId:added.rowId,expectedRevision:add.data.revision,values:{commission:30}});assert.equal(change.status,200);
+ await nextEvent(liveReader,'view',v=>v.sections.campaigns.rows.some(r=>r.rowId===added.rowId&&r.values.commission===30));
+ const removal=await api(admin,'/admin/records','POST',{table:'campaigns',action:'delete',rowId:added.rowId,expectedRevision:change.data.revision});assert.equal(removal.status,200);
+ await nextEvent(liveReader,'view',v=>!v.sections.campaigns.rows.some(r=>r.rowId===added.rowId));await liveReader.cancel();
+ assert.equal((await api(admin,'/admin/records','POST',{table:'beneficiaries',action:'delete',rowId:P.rowId('beneficiaries',data.beneficiaries[1]),expectedRevision:removal.data.revision})).data.error,'RECORD_IN_USE');
+ console.log('PASS: Admin CRUD, stale revision rejection, beneficiary live updates and deletion restrictions.');
  // Direct database reads cannot bypass the API's field projection.
  const direct=await fetch('http://127.0.0.1:8080/v1/projects/demo-erp-portal/databases/erp-portal/documents/workspaces/main',{headers:{Authorization:'Bearer '+b}});assert.equal(direct.status,403);
  console.log('PASS: Auth, owner isolation, hidden fields, live publish, permission changes, edits, conflicts, revocation and direct database denial.');

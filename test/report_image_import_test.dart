@@ -328,6 +328,7 @@ Total Earnings(Includes Bonus)
     expect(values, [
       '2026-10-23',
       'b09mqwwp8705-20',
+      'Lara Floriane',
       '3',
       '0',
       '0.00%',

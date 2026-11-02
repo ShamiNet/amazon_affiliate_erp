@@ -806,6 +806,7 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
         final columns = [
           'Date',
           'StoreID',
+          'Profile',
           'Clicks',
           'Ordered Items',
           'Conversion',
@@ -823,6 +824,7 @@ class _ReportImageImportScreenState extends State<ReportImageImportScreen> {
             [
               copiedAmazonReport.date ?? '',
               copiedAmazonReport.label,
+              copiedAmazonReport.profileName,
               ...copiedAmazonReport.toSheetTsvRow().split('\t'),
             ],
           ],

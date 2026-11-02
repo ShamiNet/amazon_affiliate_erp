@@ -62,6 +62,7 @@ void main() {
     await tester.tap(find.text('لصق في المكان المناسب ضمن الأرباح'));
     await tester.pumpAndSettle();
     expect(transferred!.single.label, 'b0fmxh8stx02-20');
+    expect(transferred!.single.profileName, 'Calixte Athanase');
     expect(transferred!.single.date, '2026-10-18');
     expect(transferred!.single.commission, 11.39);
     expect(transferred!.single.orderedItems, 39);
@@ -86,7 +87,7 @@ void main() {
     expect(row.bonus, 2);
     expect(row.totalEarnings, 11.39);
   });
-  test('plain summary and all-zero reports remain supported', () {
+  test('creator earnings are included when commissions are zero', () {
     final row = parseAmazonAssociatesClipboardReport('''
 StoreID: zero_store-20
 Oct 25 2026 /Yesterday
@@ -107,6 +108,6 @@ Earnings
 ''')!;
     expect(row.label, 'zero_store-20');
     expect(row.clicks, 0);
-    expect(row.totalEarnings, 0);
+    expect(row.totalEarnings, 99);
   });
 }

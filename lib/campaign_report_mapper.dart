@@ -31,6 +31,7 @@ class ParsedAmazonEarningsRow {
     required this.bonus,
     this.date,
     this.label = '',
+    this.profileName = '',
   });
 
   final int clicks;
@@ -43,13 +44,16 @@ class ParsedAmazonEarningsRow {
   final double bonus;
   final String? date;
   final String label;
+  final String profileName;
 
   double get conversionRate => clicks > 0 ? orderedItems / clicks : 0.0;
   double get totalEarnings => commission + bonus;
 
   /// يستخرج رمز الحساب إن وُجد في التسمية (مثل SH-04 أو MK-01).
   String get accountCode {
-    final match = RegExp(r'([A-Za-z]{1,4}-\d{1,3})').firstMatch(label);
+    final match =
+        RegExp(r'(?:^|[^A-Za-z0-9])([A-Za-z]{1,4}-\d{1,3})(?=$|[^A-Za-z0-9])')
+            .firstMatch(label);
     return match?.group(1)?.toUpperCase() ?? '';
   }
 
@@ -66,6 +70,7 @@ class ParsedAmazonEarningsRow {
       bonus: bonus + other.bonus,
       date: date ?? other.date,
       label: label.isNotEmpty ? label : other.label,
+      profileName: profileName.isNotEmpty ? profileName : other.profileName,
     );
   }
 
@@ -104,7 +109,11 @@ String _normalizeDigits(String value) {
 }
 
 double _parseMoney(String value) {
-  final cleaned = _normalizeDigits(value).replaceAll(RegExp(r'[^0-9.\-]'), '');
+  var normalized = _normalizeDigits(value);
+  if (RegExp(r',\d{1,2}$').hasMatch(normalized.trim())) {
+    normalized = normalized.replaceAll('.', '').replaceAll(',', '.');
+  }
+  final cleaned = normalized.replaceAll(RegExp(r'[^0-9.\-]'), '');
   return double.tryParse(cleaned) ?? 0.0;
 }
 
@@ -147,7 +156,7 @@ double? _clipboardMetric(
   final matches = RegExp(
     '(?:^|[^A-Za-z])(?:$labelPattern)'
     r'(?:\s*\([^)]*\))?\s*[:：]?\s*'
-    r'([$€£]?\s*[-+]?\d[\d,]*(?:\.\d+)?%?)',
+    r'([$€£]?\s*[-+]?\d[\d,]*(?:\.\d+)?%?)(?![A-Za-z0-9.,])',
     caseSensitive: false,
   ).allMatches(text);
   if (matches.isEmpty) return null;
@@ -207,9 +216,25 @@ ParsedAmazonEarningsRow? parseAmazonAssociatesClipboardReport(String text) {
           RegExp(r'!?\[([^\]]*)\]\([^\n]*?\)'), (m) => m.group(1)!)
       .replaceAll(RegExp(r'[*#]'), '')
       .replaceAll('\\', '');
-  final summaryStart = text.indexOf('Commissions Summary');
-  final summaryEnd = text.indexOf(
-      'Creator Connections Summary', summaryStart < 0 ? 0 : summaryStart);
+  // Product-table headers repeat summary labels. The number in "1Graco"
+  // belongs to its product row, never to the preceding Total Earnings header.
+  final detailsStart = RegExp(
+    r'^\s*(?:Native Shopping Ads|Linked Product|Product Title|Notes(?:\s|$))',
+    multiLine: true,
+    caseSensitive: false,
+  ).firstMatch(text)?.start;
+  if (detailsStart != null) text = text.substring(0, detailsStart);
+  final summaryStart = RegExp(r'Commissions Summary', caseSensitive: false)
+          .firstMatch(text)
+          ?.start ??
+      -1;
+  final nextSummary = summaryStart < 0
+      ? null
+      : RegExp(r'(?:Creator Connections|Bounties|Total Earnings) Summary',
+              caseSensitive: false)
+          .firstMatch(text.substring(summaryStart));
+  final summaryEnd =
+      nextSummary == null ? -1 : summaryStart + nextSummary.start;
   final metricsText = summaryStart >= 0
       ? text.substring(
           summaryStart, summaryEnd > summaryStart ? summaryEnd : text.length)
@@ -254,12 +279,33 @@ ParsedAmazonEarningsRow? parseAmazonAssociatesClipboardReport(String text) {
         'العمولات',
       ],
       implicitCents: true);
-  final bonus = _clipboardMetric(text, ['Bonus', 'المكافآت']) ??
-      _clipboardMetric(text, ['Bounties']);
+  String section(String heading) {
+    final match = RegExp('\\b' + RegExp.escape(heading) + r' Summary\b',
+            caseSensitive: false)
+        .firstMatch(fullText);
+    if (match == null) return '';
+    final tail = fullText.substring(match.end);
+    final next = RegExp(
+            r'(?:Commissions|Creator Connections|Bounties|Total Earnings) Summary',
+            caseSensitive: false)
+        .firstMatch(tail);
+    return next == null ? tail : tail.substring(0, next.start);
+  }
+
+  final commissionBonus = _clipboardMetric(text, ['Bonus', 'المكافآت']) ?? 0;
+  final bounty = _clipboardMetric(section('Bounties'), ['Earnings']) ??
+      _clipboardMetric(fullText, ['Bounties'], implicitCents: true) ??
+      0;
+  final creator =
+      _clipboardMetric(section('Creator Connections'), ['Earnings']) ??
+          _clipboardMetric(fullText, ['Creator Connections'],
+              implicitCents: true) ??
+          0;
+  final grandTotal = _clipboardMetric(fullText, ['Total Earnings Summary']) ??
+      _clipboardMetric(fullText, ['Summary'], implicitCents: true);
   final totalEarnings = _clipboardMetric(text, [
     'Total Earnings',
     if (summaryStart >= 0) 'Earnings',
-    'Total Earnings Summary',
     'الأرباح الإجمالية',
   ]);
   final requiredMetricCount = [
@@ -270,19 +316,32 @@ ParsedAmazonEarningsRow? parseAmazonAssociatesClipboardReport(String text) {
   ].whereType<double>().length;
   if (requiredMetricCount < 2) return null;
 
-  var commissionValue = commission ?? 0;
-  final bonusValue = bonus ?? 0;
-  if (commission == null && totalEarnings != null) {
-    commissionValue = (totalEarnings - bonusValue).clamp(0.0, double.infinity);
-  } else if (commissionValue == 0 &&
-      bonusValue == 0 &&
-      (totalEarnings ?? 0) > 0) {
-    commissionValue = totalEarnings!;
-  }
-  final trackingId = RegExp(
-    r'(?:StoreID|Tracking ID)\s*:\s*([A-Za-z0-9_-]+)',
-    caseSensitive: false,
-  ).firstMatch(fullText)?.group(1);
+  final commissionInclusive = totalEarnings ??
+      (commission == null ? null : commission + commissionBonus);
+  final commissionValue =
+      (commissionInclusive ?? commissionBonus) - commissionBonus;
+  final bonusValue = grandTotal != null
+      ? grandTotal - commissionValue
+      : commissionBonus + bounty + creator;
+  final countryId = RegExp(r'Country\s*:\s*[^()\n]*\(([A-Za-z0-9_-]+)\)',
+          caseSensitive: false)
+      .firstMatch(fullText)
+      ?.group(1);
+  final explicitId =
+      RegExp(r'StoreID\s*:\s*([A-Za-z0-9_-]+)', caseSensitive: false)
+          .firstMatch(fullText)
+          ?.group(1);
+  final header = fullText
+      .split(RegExp(r'Reports|Tracking ID:', caseSensitive: false))
+      .first;
+  final trackingId = countryId ??
+      explicitId ??
+      RegExp(r'[A-Za-z0-9][A-Za-z0-9_-]*?-\d{2}').firstMatch(header)?.group(0);
+  final profileName = RegExp(r'Hello,\s*([^\r\n]+)', caseSensitive: false)
+          .firstMatch(fullText)
+          ?.group(1)
+          ?.trim() ??
+      '';
 
   return ParsedAmazonEarningsRow(
     clicks: (clicks ?? 0).round(),
@@ -295,6 +354,7 @@ ParsedAmazonEarningsRow? parseAmazonAssociatesClipboardReport(String text) {
     bonus: bonusValue,
     date: _amazonClipboardDate(fullText),
     label: trackingId ?? '',
+    profileName: profileName,
   );
 }
 
@@ -564,6 +624,8 @@ List<ParsedAmazonEarningsRow> parseAmazonEarningsRows(
           bonus: bon,
           date: normalizeReportDate(cell(row, dateIdx)),
           label: cell(row, labelIdx),
+          profileName:
+              cell(row, _findColumn(columns, ['profile', 'البروفايل'])),
         ),
       );
     }
